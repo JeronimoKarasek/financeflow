@@ -3,10 +3,10 @@
 -- Execute este SQL no Supabase SQL Editor
 -- ============================================================
 
--- 1. Adicionar coluna 'credenciais' (JSONB) na tabela de integrações
--- Isso permite salvar as credenciais das APIs de forma estruturada
+-- 1. Garantir que configuracoes_extra existe (JSONB, para dados extras como instance do Evolution)
+-- Essa coluna normalmente já existe, mas caso não exista:
 ALTER TABLE _financeiro_integracoes 
-ADD COLUMN IF NOT EXISTS credenciais JSONB DEFAULT '{}';
+ADD COLUMN IF NOT EXISTS configuracoes_extra JSONB DEFAULT '{}';
 
 -- 2. Adicionar coluna 'parent_id' na tabela de categorias (para subcategorias)
 ALTER TABLE _financeiro_categorias 

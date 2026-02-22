@@ -39,12 +39,55 @@ export async function GET(request: Request) {
     // Buscar integrações do usuário
     const { data: integracoes } = await supabase
       .from('_financeiro_integracoes')
-      .select('provedor, credenciais, ativa')
+      .select('provedor, api_key, api_secret, access_token, webhook_url, ambiente, configuracoes_extra, ativa')
       .eq('usuario_id', user.id)
+
+    // Converter para formato que o frontend espera (objeto 'credenciais')
+    const integracoesFormatadas = (integracoes || []).map((integ: Record<string, unknown>) => {
+      const extra = (integ.configuracoes_extra || {}) as Record<string, string>
+      let credenciais: Record<string, string> = {}
+
+      switch (integ.provedor) {
+        case 'evolution':
+          credenciais = {
+            url: (integ.webhook_url as string) || '',
+            api_key: (integ.api_key as string) || '',
+            instance: extra.instance || '',
+          }
+          break
+        case 'asaas':
+          credenciais = {
+            api_key: (integ.api_key as string) || '',
+            sandbox: integ.ambiente === 'sandbox' ? 'true' : 'false',
+          }
+          break
+        case 'stripe':
+          credenciais = {
+            publishable_key: (integ.api_key as string) || '',
+            secret_key: (integ.api_secret as string) || '',
+          }
+          break
+        case 'mercadopago':
+          credenciais = {
+            access_token: (integ.access_token as string) || '',
+            public_key: (integ.api_key as string) || '',
+          }
+          break
+        case 'hotmart':
+          credenciais = {
+            client_id: (integ.api_key as string) || '',
+            client_secret: (integ.api_secret as string) || '',
+            basic_token: (integ.access_token as string) || '',
+          }
+          break
+      }
+
+      return { provedor: integ.provedor, credenciais, ativa: integ.ativa }
+    })
 
     return NextResponse.json({
       perfil: usuario,
-      integracoes: integracoes || [],
+      integracoes: integracoesFormatadas,
     })
   } catch {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
@@ -120,23 +163,44 @@ export async function PUT(request: Request) {
       }
 
       for (const cred of credenciais) {
-        // Mapear credenciais JSONB para colunas individuais da tabela
+        const c = cred.credenciais || {}
+
+        // Mapear para colunas reais da tabela conforme o provedor
         const mapped: Record<string, unknown> = {
           usuario_id: user.id,
           provedor: cred.provedor,
           nome: cred.provedor,
           ativa: cred.ativa ?? true,
-          credenciais: cred.credenciais, // JSONB backup
         }
 
-        // Mapear campos individuais conforme o provedor
-        const c = cred.credenciais || {}
-        if (c.api_key) mapped.api_key = c.api_key
-        if (c.secret_key) mapped.api_secret = c.secret_key
-        if (c.client_secret) mapped.api_secret = c.client_secret
-        if (c.access_token) mapped.access_token = c.access_token
-        if (c.url) mapped.webhook_url = c.url
-        if (c.sandbox !== undefined) mapped.ambiente = c.sandbox === 'true' ? 'sandbox' : 'producao'
+        switch (cred.provedor) {
+          case 'evolution':
+            mapped.api_key = c.api_key || null
+            mapped.webhook_url = c.url || null
+            mapped.configuracoes_extra = { instance: c.instance || '' }
+            break
+          case 'asaas':
+            mapped.api_key = c.api_key || null
+            mapped.ambiente = c.sandbox === 'true' ? 'sandbox' : 'producao'
+            break
+          case 'stripe':
+            mapped.api_key = c.publishable_key || null
+            mapped.api_secret = c.secret_key || null
+            break
+          case 'mercadopago':
+            mapped.access_token = c.access_token || null
+            mapped.api_key = c.public_key || null
+            break
+          case 'hotmart':
+            mapped.api_key = c.client_id || null
+            mapped.api_secret = c.client_secret || null
+            mapped.access_token = c.basic_token || null
+            break
+          default:
+            mapped.api_key = c.api_key || null
+            mapped.api_secret = c.api_secret || c.secret_key || null
+            mapped.access_token = c.access_token || null
+        }
 
         const { data: existing } = await supabase
           .from('_financeiro_integracoes')

@@ -20,7 +20,7 @@ async function getCredenciais(userId: string, provedor: string) {
   const supabase = createServerSupabase()
   const { data } = await supabase
     .from('_financeiro_integracoes')
-    .select('credenciais, api_key, api_secret, access_token, ambiente, ativa')
+    .select('api_key, api_secret, access_token, webhook_url, ambiente, configuracoes_extra, ativa')
     .eq('usuario_id', userId)
     .eq('provedor', provedor)
     .eq('ativa', true)
@@ -33,10 +33,10 @@ async function fetchAsaas(userId: string) {
   const creds = await getCredenciais(userId, 'asaas')
   if (!creds) return { error: 'Asaas não configurado', data: [] }
 
-  const apiKey = creds.credenciais?.api_key || creds.api_key
+  const apiKey = creds.api_key
   if (!apiKey) return { error: 'API Key do Asaas não encontrada', data: [] }
 
-  const sandbox = creds.credenciais?.sandbox === 'true' || creds.ambiente === 'sandbox'
+  const sandbox = creds.ambiente === 'sandbox'
   const baseUrl = sandbox ? 'https://sandbox.asaas.com/api/v3' : 'https://api.asaas.com/v3'
 
   try {
@@ -75,7 +75,7 @@ async function fetchStripe(userId: string) {
   const creds = await getCredenciais(userId, 'stripe')
   if (!creds) return { error: 'Stripe não configurado', data: [] }
 
-  const secretKey = creds.credenciais?.secret_key || creds.api_secret
+  const secretKey = creds.api_secret
   if (!secretKey) return { error: 'Secret Key do Stripe não encontrada', data: [] }
 
   try {
@@ -115,7 +115,7 @@ async function fetchMercadoPago(userId: string) {
   const creds = await getCredenciais(userId, 'mercadopago')
   if (!creds) return { error: 'Mercado Pago não configurado', data: [] }
 
-  const accessToken = creds.credenciais?.access_token || creds.access_token
+  const accessToken = creds.access_token
   if (!accessToken) return { error: 'Access Token do Mercado Pago não encontrado', data: [] }
 
   try {
@@ -155,9 +155,9 @@ async function fetchHotmart(userId: string) {
   const creds = await getCredenciais(userId, 'hotmart')
   if (!creds) return { error: 'Hotmart não configurado', data: [] }
 
-  const clientId = creds.credenciais?.client_id
-  const clientSecret = creds.credenciais?.client_secret
-  const basicToken = creds.credenciais?.basic_token
+  const clientId = creds.api_key
+  const clientSecret = creds.api_secret
+  const basicToken = creds.access_token
   if (!clientId && !basicToken) return { error: 'Credenciais do Hotmart incompletas', data: [] }
 
   try {
