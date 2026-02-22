@@ -44,41 +44,18 @@ export default function DashboardPage() {
       setData(result)
     } catch (err) {
       console.error('Erro ao carregar dashboard:', err)
-      // Dados mock para demonstração
       setData({
-        totalReceitas: 158750.00,
-        totalDespesas: 92340.00,
-        saldo: 66410.00,
-        pendentes: 12,
-        atrasados: 3,
-        receitasMes: 45200.00,
-        despesasMes: 28600.00,
-        franquias: [
-          { nome: 'Franquia Centro', saldo: 25400, cor: '#6366f1' },
-          { nome: 'Franquia Norte', saldo: 18200, cor: '#10b981' },
-          { nome: 'Franquia Sul', saldo: 15800, cor: '#f59e0b' },
-          { nome: 'Pessoal', saldo: 7010, cor: '#ec4899' },
-        ],
-        fluxoMensal: [
-          { mes: 'Set', receitas: 38000, despesas: 25000 },
-          { mes: 'Out', receitas: 42000, despesas: 28000 },
-          { mes: 'Nov', receitas: 39500, despesas: 26500 },
-          { mes: 'Dez', receitas: 51000, despesas: 31000 },
-          { mes: 'Jan', receitas: 43200, despesas: 27800 },
-          { mes: 'Fev', receitas: 45200, despesas: 28600 },
-        ],
-        categoriasDespesas: [
-          { nome: 'Salários', valor: 12400, cor: '#f97316' },
-          { nome: 'Aluguel', valor: 6800, cor: '#ef4444' },
-          { nome: 'Marketing', valor: 4200, cor: '#ec4899' },
-          { nome: 'Fornecedores', valor: 3100, cor: '#f59e0b' },
-          { nome: 'Outros', valor: 2100, cor: '#6b7280' },
-        ],
-        proximasCobrancas: [
-          { id: '1', descricao: 'Fatura Fornecedor X', valor: 4500, vencimento: '2026-02-25', status: 'pendente' },
-          { id: '2', descricao: 'Aluguel Março', valor: 3400, vencimento: '2026-03-01', status: 'pendente' },
-          { id: '3', descricao: 'Cliente Y - Serviço', valor: 8900, vencimento: '2026-02-20', status: 'atrasado' },
-        ],
+        totalReceitas: 0,
+        totalDespesas: 0,
+        saldo: 0,
+        pendentes: 0,
+        atrasados: 0,
+        receitasMes: 0,
+        despesasMes: 0,
+        franquias: [],
+        fluxoMensal: [],
+        categoriasDespesas: [],
+        proximasCobrancas: [],
       })
     } finally {
       setLoading(false)
@@ -141,8 +118,8 @@ export default function DashboardPage() {
           subtitle={`${formatCurrency(data.receitasMes)} este mês`}
           icon={<TrendingUp className="w-5 h-5" />}
           color="emerald"
-          trend="+12.5%"
-          trendUp={true}
+          trend={data.totalReceitas > 0 ? `${saldoPercent}% margem` : 'Sem dados'}
+          trendUp={data.totalReceitas > 0}
         />
         <KPICard
           title="Despesas"
@@ -150,7 +127,7 @@ export default function DashboardPage() {
           subtitle={`${formatCurrency(data.despesasMes)} este mês`}
           icon={<TrendingDown className="w-5 h-5" />}
           color="red"
-          trend="+3.2%"
+          trend={data.totalDespesas > 0 ? formatCurrency(data.despesasMes) : 'Sem dados'}
           trendUp={false}
         />
         <KPICard

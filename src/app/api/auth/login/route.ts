@@ -5,41 +5,29 @@ import { SignJWT } from 'jose'
 
 export const dynamic = 'force-dynamic'
 
-const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || 'financeflow-secret')
+const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
 
 export async function POST(request: Request) {
   try {
+    if (!process.env.NEXTAUTH_SECRET) {
+      return NextResponse.json({ error: 'Configuração do servidor incompleta' }, { status: 500 })
+    }
+
     const { email, senha } = await request.json()
 
     if (!email || !senha) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 })
     }
 
-    console.log('[LOGIN] Tentativa:', email)
-    console.log('[LOGIN] SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 30))
-    console.log('[LOGIN] SERVICE_KEY existe:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
-
     const supabase = createServerSupabase()
-    
-    // Primeiro, buscar sem filtro de ativo para debug
     const { data: usuario, error } = await supabase
       .from('_financeiro_usuarios')
       .select('*')
       .eq('email', email.toLowerCase().trim())
       .single()
 
-    console.log('[LOGIN] Query error:', error?.message || 'nenhum')
-    console.log('[LOGIN] Usuário encontrado:', !!usuario)
-    if (usuario) {
-      console.log('[LOGIN] Ativo:', usuario.ativo)
-      console.log('[LOGIN] Hash (primeiros 20):', usuario.senha_hash?.substring(0, 20))
-    }
-
     if (error || !usuario) {
-      return NextResponse.json({ 
-        error: 'Credenciais inválidas',
-        debug: { dbError: error?.message, code: error?.code }
-      }, { status: 401 })
+      return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
     }
 
     if (!usuario.ativo) {
@@ -47,8 +35,6 @@ export async function POST(request: Request) {
     }
 
     const senhaValida = await bcrypt.compare(senha, usuario.senha_hash)
-    console.log('[LOGIN] Senha válida:', senhaValida)
-    
     if (!senhaValida) {
       return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
     }
