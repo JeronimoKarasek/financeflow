@@ -15,19 +15,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 })
     }
 
+    console.log('[LOGIN] Tentativa:', email)
+    console.log('[LOGIN] SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 30))
+    console.log('[LOGIN] SERVICE_KEY existe:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
+
     const supabase = createServerSupabase()
+    
+    // Primeiro, buscar sem filtro de ativo para debug
     const { data: usuario, error } = await supabase
       .from('_financeiro_usuarios')
       .select('*')
       .eq('email', email.toLowerCase().trim())
-      .eq('ativo', true)
       .single()
 
+    console.log('[LOGIN] Query error:', error?.message || 'nenhum')
+    console.log('[LOGIN] Usuário encontrado:', !!usuario)
+    if (usuario) {
+      console.log('[LOGIN] Ativo:', usuario.ativo)
+      console.log('[LOGIN] Hash (primeiros 20):', usuario.senha_hash?.substring(0, 20))
+    }
+
     if (error || !usuario) {
-      return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
+      return NextResponse.json({ 
+        error: 'Credenciais inválidas',
+        debug: { dbError: error?.message, code: error?.code }
+      }, { status: 401 })
+    }
+
+    if (!usuario.ativo) {
+      return NextResponse.json({ error: 'Usuário desativado' }, { status: 401 })
     }
 
     const senhaValida = await bcrypt.compare(senha, usuario.senha_hash)
+    console.log('[LOGIN] Senha válida:', senhaValida)
+    
     if (!senhaValida) {
       return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
     }
