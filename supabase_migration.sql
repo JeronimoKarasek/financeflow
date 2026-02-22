@@ -463,10 +463,10 @@ ORDER BY mes DESC;
 INSERT INTO _financeiro_usuarios (email, senha_hash, nome, role)
 VALUES (
   'junior.karaseks@gmail.com',
-  '$2a$12$LJ3a7FhJGkQ1Yfq5MhRx0OzFqR0mN1qGzPxH5s7vK8NxWqZ1pXKuC',
+  '$2b$12$fTUgmv9fMJm6.fYNVdpE..ZgZbvekEAZoCk2TB7/lFqYD43XS4yii',
   'Junior Karasek',
   'admin'
-) ON CONFLICT (email) DO NOTHING;
+) ON CONFLICT (email) DO UPDATE SET senha_hash = EXCLUDED.senha_hash;
 
 -- ============================================================
 -- SEED: Categorias padrão
