@@ -120,6 +120,24 @@ export async function PUT(request: Request) {
       }
 
       for (const cred of credenciais) {
+        // Mapear credenciais JSONB para colunas individuais da tabela
+        const mapped: Record<string, unknown> = {
+          usuario_id: user.id,
+          provedor: cred.provedor,
+          nome: cred.provedor,
+          ativa: cred.ativa ?? true,
+          credenciais: cred.credenciais, // JSONB backup
+        }
+
+        // Mapear campos individuais conforme o provedor
+        const c = cred.credenciais || {}
+        if (c.api_key) mapped.api_key = c.api_key
+        if (c.secret_key) mapped.api_secret = c.secret_key
+        if (c.client_secret) mapped.api_secret = c.client_secret
+        if (c.access_token) mapped.access_token = c.access_token
+        if (c.url) mapped.webhook_url = c.url
+        if (c.sandbox !== undefined) mapped.ambiente = c.sandbox === 'true' ? 'sandbox' : 'producao'
+
         const { data: existing } = await supabase
           .from('_financeiro_integracoes')
           .select('id')
@@ -128,23 +146,41 @@ export async function PUT(request: Request) {
           .single()
 
         if (existing) {
-          await supabase
+          const { error: upErr } = await supabase
             .from('_financeiro_integracoes')
-            .update({ credenciais: cred.credenciais, ativa: cred.ativa ?? true })
+            .update(mapped)
             .eq('id', existing.id)
+          if (upErr) console.error('Update integração error:', upErr)
         } else {
-          await supabase
+          const { error: insErr } = await supabase
             .from('_financeiro_integracoes')
-            .insert({
-              usuario_id: user.id,
-              provedor: cred.provedor,
-              credenciais: cred.credenciais,
-              ativa: cred.ativa ?? true,
-            })
+            .insert(mapped)
+          if (insErr) console.error('Insert integração error:', insErr)
         }
       }
 
       return NextResponse.json({ success: true, message: 'Credenciais salvas' })
+    }
+
+    if (tipo === 'notificacoes') {
+      const { whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio } = body
+
+      // Salvar na tabela de preferências de notificação (upsert)
+      const { data: existing } = await supabase
+        .from('_financeiro_preferencias_notificacao')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .single()
+
+      const prefData = { usuario_id: user.id, whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio }
+
+      if (existing) {
+        await supabase.from('_financeiro_preferencias_notificacao').update(prefData).eq('id', existing.id)
+      } else {
+        await supabase.from('_financeiro_preferencias_notificacao').insert(prefData)
+      }
+
+      return NextResponse.json({ success: true, message: 'Preferências salvas' })
     }
 
     return NextResponse.json({ error: 'Tipo de atualização inválido' }, { status: 400 })

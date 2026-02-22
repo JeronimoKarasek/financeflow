@@ -20,6 +20,9 @@ import {
   User,
   Globe,
   TrendingUp,
+  Tag,
+  CreditCard,
+  DollarSign,
 } from 'lucide-react'
 
 const menuItems = [
@@ -27,7 +30,10 @@ const menuItems = [
   { href: '/dashboard/franquias', label: 'Franquias', icon: Building2 },
   { href: '/dashboard/transacoes', label: 'Transações', icon: ArrowUpDown },
   { href: '/dashboard/cobrancas', label: 'Cobranças', icon: Receipt },
+  { href: '/dashboard/categorias', label: 'Categorias', icon: Tag },
+  { href: '/dashboard/contas', label: 'Contas Bancárias', icon: CreditCard },
   { href: '/dashboard/pessoal', label: 'Finanças Pessoais', icon: Wallet },
+  { href: '/dashboard/pagamentos', label: 'Pagamentos', icon: DollarSign },
   { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: TrendingUp },
   { href: '/dashboard/relatorios', label: 'Relatórios', icon: FileBarChart },
   { href: '/dashboard/notificacoes', label: 'Notificações', icon: Bell },

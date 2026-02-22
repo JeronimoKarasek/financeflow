@@ -45,6 +45,15 @@ export async function POST(request: Request) {
     const body = await request.json()
     const supabase = createServerSupabase()
 
+    // Limpar campos vazios para null (evitar erro de UUID vazio)
+    const uuidFields = ['categoria_id', 'conta_bancaria_id', 'conta_destino_id', 'franquia_id', 'usuario_id']
+    for (const field of uuidFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
+    if (!body.data_pagamento) body.data_pagamento = null
+    if (!body.recorrencia_tipo) body.recorrencia_tipo = null
+    if (!body.observacoes) body.observacoes = null
+
     // Se for parcelado, criar múltiplas transações
     if (body.parcela_total && body.parcela_total > 1) {
       const grupoParcela = crypto.randomUUID()

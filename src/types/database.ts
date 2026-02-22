@@ -39,6 +39,7 @@ export interface Categoria {
   tipo: 'receita' | 'despesa'
   cor: string
   icone: string
+  parent_id?: string | null
   franquia_id?: string | null
   is_pessoal: boolean
   usuario_id?: string | null
@@ -136,6 +137,7 @@ export interface Integracao {
   access_token?: string | null
   webhook_url?: string | null
   ambiente: 'sandbox' | 'producao'
+  credenciais?: Record<string, string> | null
   configuracoes_extra: Record<string, unknown>
   franquia_id?: string | null
   ativa: boolean
