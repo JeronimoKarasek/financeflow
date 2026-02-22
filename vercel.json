@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "@supabase-url",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key",
+    "JWT_SECRET": "@jwt-secret",
+    "EVOLUTION_API_URL": "@evolution-api-url",
+    "EVOLUTION_API_KEY": "@evolution-api-key",
+    "EVOLUTION_INSTANCE": "@evolution-instance"
+  }
+}
