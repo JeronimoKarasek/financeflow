@@ -24,6 +24,12 @@ export async function POST(request: Request) {
     const body = await request.json()
     const supabase = createServerSupabase()
 
+    // Limpar campos vazios para null (evitar violação de UNIQUE em campos opcionais)
+    const optionalFields = ['cnpj', 'endereco', 'cidade', 'estado', 'telefone', 'email', 'responsavel', 'logo_url']
+    for (const field of optionalFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
+
     const { data, error } = await supabase
       .from('_financeiro_franquias')
       .insert(body)

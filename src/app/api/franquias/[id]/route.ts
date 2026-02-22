@@ -27,6 +27,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const body = await request.json()
     const supabase = createServerSupabase()
 
+    // Limpar campos vazios para null
+    const optionalFields = ['cnpj', 'endereco', 'cidade', 'estado', 'telefone', 'email', 'responsavel', 'logo_url']
+    for (const field of optionalFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
+
     const { data, error } = await supabase
       .from('_financeiro_franquias')
       .update(body)
