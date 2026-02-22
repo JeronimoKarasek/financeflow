@@ -9,7 +9,7 @@ export async function POST() {
     const supabase = createServerSupabase()
     const evolutionUrl = process.env.EVOLUTION_API_URL
     const evolutionKey = process.env.EVOLUTION_API_KEY
-    const instance = process.env.EVOLUTION_INSTANCE || 'financeflow'
+    const instance = process.env.EVOLUTION_INSTANCE || 'farolfinance'
 
     if (!evolutionUrl || !evolutionKey) {
       return NextResponse.json({ error: 'Evolution API não configurada' }, { status: 400 })
@@ -59,15 +59,15 @@ export async function POST() {
 
       if (cobranca.tipo === 'receber') {
         if (diasParaVencer < 0) {
-          mensagem = `⚠️ *COBRANÇA VENCIDA*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nInformamos que a cobrança *${cobranca.descricao}* no valor de *${valorFormatado}* venceu em *${dataFormatada}*.\n\nPor favor, regularize o pagamento o mais breve possível.\n\n_FinanceFlow - Gestão Financeira_`
+          mensagem = `⚠️ *COBRANÇA VENCIDA*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nInformamos que a cobrança *${cobranca.descricao}* no valor de *${valorFormatado}* venceu em *${dataFormatada}*.\n\nPor favor, regularize o pagamento o mais breve possível.\n\n_Farol Finance - Gestão Financeira_`
         } else {
-          mensagem = `📋 *LEMBRETE DE PAGAMENTO*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nLembramos que a cobrança *${cobranca.descricao}* no valor de *${valorFormatado}* vence em *${dataFormatada}* (${diasParaVencer} dia${diasParaVencer > 1 ? 's' : ''}).\n\n${cobranca.link_pagamento ? '🔗 Link de pagamento: ' + cobranca.link_pagamento + '\n\n' : ''}_FinanceFlow - Gestão Financeira_`
+          mensagem = `📋 *LEMBRETE DE PAGAMENTO*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nLembramos que a cobrança *${cobranca.descricao}* no valor de *${valorFormatado}* vence em *${dataFormatada}* (${diasParaVencer} dia${diasParaVencer > 1 ? 's' : ''}).\n\n${cobranca.link_pagamento ? '🔗 Link de pagamento: ' + cobranca.link_pagamento + '\n\n' : ''}_Farol Finance - Gestão Financeira_`
         }
       } else {
         if (diasParaVencer <= 0) {
-          mensagem = `🔴 *CONTA VENCENDO HOJE*\n\n*${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}*\n\n_Lembrete automático FinanceFlow_`
+          mensagem = `🔴 *CONTA VENCENDO HOJE*\n\n*${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}*\n\n_Lembrete automático Farol Finance_`
         } else {
-          mensagem = `🟡 *LEMBRETE DE CONTA*\n\n*${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}* (${diasParaVencer} dias)\n\n_Lembrete automático FinanceFlow_`
+          mensagem = `🟡 *LEMBRETE DE CONTA*\n\n*${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}* (${diasParaVencer} dias)\n\n_Lembrete automático Farol Finance_`
         }
       }
 

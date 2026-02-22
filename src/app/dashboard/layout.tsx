@@ -17,7 +17,6 @@ import {
   Menu,
   X,
   ChevronDown,
-  Zap,
   User,
   Globe,
   TrendingUp,
@@ -84,13 +83,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-[#2a2a3a]">
-          <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
+          <img src="https://gpakoffbuypbmfiwewka.supabase.co/storage/v1/object/public/Farol/Loguin%20farolchat.png" alt="Farol Finance" className="flex-shrink-0 w-10 h-10 rounded-xl object-contain" />
           {sidebarOpen && (
             <div className="overflow-hidden">
               <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent whitespace-nowrap">
-                FinanceFlow
+                Farol Finance
               </h1>
               <p className="text-[10px] text-gray-600 whitespace-nowrap">v1.0 Pro</p>
             </div>
@@ -149,11 +146,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <aside className="absolute left-0 top-0 h-full w-72 bg-[#0d0d14] border-r border-[#2a2a3a] flex flex-col">
             <div className="flex items-center justify-between px-5 py-5 border-b border-[#2a2a3a]">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-white" />
-                </div>
+                <img src="https://gpakoffbuypbmfiwewka.supabase.co/storage/v1/object/public/Farol/Loguin%20farolchat.png" alt="Farol Finance" className="w-10 h-10 rounded-xl object-contain" />
                 <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                  FinanceFlow
+                  Farol Finance
                 </h1>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="text-gray-400">

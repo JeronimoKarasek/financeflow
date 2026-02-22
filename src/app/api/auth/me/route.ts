@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
 
-const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || 'financeflow-secret')
+const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
 
 export async function GET() {
   try {

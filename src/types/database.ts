@@ -1,5 +1,5 @@
 // ============================================================
-// FINANCEFLOW - Database Types (Supabase)
+// FAROL FINANCE - Database Types (Supabase)
 // ============================================================
 
 export interface Usuario {

@@ -71,7 +71,7 @@ export default function CobrancasPage() {
     const valorFormatado = formatCurrency(Number(cobranca.valor))
     const dataFormatada = formatDate(cobranca.data_vencimento)
     const mensagem = cobranca.tipo === 'receber'
-      ? `📋 *COBRANÇA*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nRef: *${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}*\n\n${cobranca.link_pagamento ? '🔗 Pague aqui: ' + cobranca.link_pagamento + '\n\n' : ''}_FinanceFlow_`
+      ? `📋 *COBRANÇA*\n\nOlá${cobranca.nome_contato ? ' ' + cobranca.nome_contato : ''}!\n\nRef: *${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}*\n\n${cobranca.link_pagamento ? '🔗 Pague aqui: ' + cobranca.link_pagamento + '\n\n' : ''}_Farol Finance_`
       : `🟡 *LEMBRETE*\n\n*${cobranca.descricao}*\nValor: *${valorFormatado}*\nVencimento: *${dataFormatada}*`
 
     try {

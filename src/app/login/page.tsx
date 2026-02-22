@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, Zap, Shield } from 'lucide-react'
+import { Eye, EyeOff, LogIn, Shield } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -51,11 +51,9 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-4 shadow-lg shadow-indigo-500/20">
-            <Zap className="w-8 h-8 text-white" />
-          </div>
+          <img src="https://gpakoffbuypbmfiwewka.supabase.co/storage/v1/object/public/Farol/Loguin%20farolchat.png" alt="Farol Finance" className="w-20 h-20 mx-auto mb-4 object-contain" />
           <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            FinanceFlow
+            Farol Finance
           </h1>
           <p className="text-gray-500 mt-2 text-sm">Controle financeiro inteligente</p>
         </div>
@@ -123,7 +121,7 @@ export default function LoginPage() {
                 </>
               ) : (
                 <>
-                  <Zap className="w-4 h-4" />
+                  <LogIn className="w-4 h-4" />
                   Entrar no Sistema
                 </>
               )}
@@ -132,7 +130,7 @@ export default function LoginPage() {
 
           <div className="mt-6 pt-4 border-t border-[#2a2a3a] text-center">
             <p className="text-xs text-gray-600">
-              FinanceFlow v1.0 &middot; Powered by AI
+              Farol Finance v1.0 &middot; Farol Base
             </p>
           </div>
         </div>

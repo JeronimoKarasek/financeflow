@@ -298,7 +298,7 @@ export default function ConfiguracoesPage() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">Nome da Instância</label>
-                    <input value={apis.evolution_instance} onChange={e => setApis({...apis, evolution_instance: e.target.value})} placeholder="financeflow" className="w-full px-3 py-2 text-sm" />
+                    <input value={apis.evolution_instance} onChange={e => setApis({...apis, evolution_instance: e.target.value})} placeholder="farolfinance" className="w-full px-3 py-2 text-sm" />
                   </div>
                 </div>
               </div>

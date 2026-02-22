@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
     const evolutionUrl = process.env.EVOLUTION_API_URL
     const evolutionKey = process.env.EVOLUTION_API_KEY
-    const instance = process.env.EVOLUTION_INSTANCE || 'financeflow'
+    const instance = process.env.EVOLUTION_INSTANCE || 'farolfinance'
 
     if (!evolutionUrl || !evolutionKey) {
       return NextResponse.json({ error: 'Evolution API não configurada' }, { status: 400 })
