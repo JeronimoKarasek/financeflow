@@ -15,9 +15,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Farol Finance - Controle Financeiro Inteligente",
   description: "Sistema completo de gestão financeira com controle de franquias, cobranças, integrações e notificações WhatsApp.",
-  icons: {
-    icon: '/favicon.svg',
-  },
 };
 
 export default function RootLayout({

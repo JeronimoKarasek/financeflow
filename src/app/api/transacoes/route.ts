@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const supabase = createServerSupabase()
     let query = supabase
       .from('_financeiro_transacoes')
-      .select('*, _financeiro_categorias(nome, cor, icone), _financeiro_franquias(nome), _financeiro_contas_bancarias(nome, banco)', { count: 'exact' })
+      .select('*, _financeiro_categorias(nome, cor, icone), _financeiro_franquias(nome), _financeiro_contas_bancarias!_financeiro_transacoes_conta_bancaria_id_fkey(nome, banco)', { count: 'exact' })
       .order('data_vencimento', { ascending: false })
       .range((page - 1) * limit, page * limit - 1)
 
