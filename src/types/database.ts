@@ -88,6 +88,7 @@ export interface Transacao {
   comprovante_url?: string | null
   observacoes?: string | null
   tags?: string[] | null
+  cartao_credito_id?: string | null
   origem_integracao?: string | null
   id_externo?: string | null
   created_at: string
@@ -96,6 +97,42 @@ export interface Transacao {
   categoria?: Categoria | null
   conta_bancaria?: ContaBancaria | null
   franquia?: Franquia | null
+  cartao_credito?: CartaoCredito | null
+}
+
+export interface CartaoCredito {
+  id: string
+  nome: string
+  bandeira: string
+  banco?: string | null
+  ultimos_digitos?: string | null
+  limite_total: number
+  limite_usado: number
+  dia_fechamento: number
+  dia_vencimento: number
+  cor: string
+  conta_bancaria_id?: string | null
+  franquia_id?: string | null
+  is_pessoal: boolean
+  usuario_id?: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface FaturaCartao {
+  id: string
+  cartao_credito_id: string
+  mes_referencia: number
+  ano_referencia: number
+  data_fechamento: string
+  data_vencimento: string
+  valor_total: number
+  valor_pago: number
+  status: 'aberta' | 'fechada' | 'paga' | 'parcial'
+  transacao_pagamento_id?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Cobranca {

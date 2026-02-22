@@ -32,6 +32,8 @@ const menuItems = [
   { href: '/dashboard/cobrancas', label: 'Cobranças', icon: Receipt },
   { href: '/dashboard/categorias', label: 'Categorias', icon: Tag },
   { href: '/dashboard/contas', label: 'Contas Bancárias', icon: CreditCard },
+  { href: '/dashboard/cartoes', label: 'Cartões de Crédito', icon: CreditCard },
+  { href: '/dashboard/importacao', label: 'Importar Extrato', icon: FileBarChart },
   { href: '/dashboard/pessoal', label: 'Finanças Pessoais', icon: Wallet },
   { href: '/dashboard/pagamentos', label: 'Pagamentos', icon: DollarSign },
   { href: '/dashboard/orcamentos', label: 'Orçamentos', icon: TrendingUp },

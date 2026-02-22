@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     const supabase = createServerSupabase()
 
     // Limpar campos vazios para null (evitar erro de UUID vazio)
-    const uuidFields = ['categoria_id', 'conta_bancaria_id', 'conta_destino_id', 'franquia_id', 'usuario_id']
+    const uuidFields = ['categoria_id', 'conta_bancaria_id', 'conta_destino_id', 'franquia_id', 'usuario_id', 'cartao_credito_id']
     for (const field of uuidFields) {
       if (body[field] === '' || body[field] === undefined) body[field] = null
     }
@@ -106,6 +106,22 @@ export async function POST(request: Request) {
           .from('_financeiro_contas_bancarias')
           .update({ saldo_atual: novoSaldo })
           .eq('id', body.conta_bancaria_id)
+      }
+    }
+
+    // Atualizar limite usado do cartão de crédito
+    if (body.cartao_credito_id && body.tipo === 'despesa') {
+      const { data: cartao } = await supabase
+        .from('_financeiro_cartoes_credito')
+        .select('limite_usado')
+        .eq('id', body.cartao_credito_id)
+        .single()
+
+      if (cartao) {
+        await supabase
+          .from('_financeiro_cartoes_credito')
+          .update({ limite_usado: Number(cartao.limite_usado) + Number(body.valor) })
+          .eq('id', body.cartao_credito_id)
       }
     }
 

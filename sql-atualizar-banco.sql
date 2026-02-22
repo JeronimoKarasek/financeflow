@@ -109,5 +109,67 @@ SELECT * FROM (VALUES
 ) AS v(nome, tipo, cor, icone, is_pessoal, ativa)
 WHERE NOT EXISTS (SELECT 1 FROM _financeiro_categorias LIMIT 1);
 
+-- 10. Criar tabela de cartões de crédito
+CREATE TABLE IF NOT EXISTS _financeiro_cartoes_credito (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  bandeira TEXT NOT NULL DEFAULT 'visa', -- visa, mastercard, elo, amex, hipercard
+  banco TEXT,
+  ultimos_digitos TEXT, -- últimos 4 dígitos
+  limite_total NUMERIC(15,2) NOT NULL DEFAULT 0,
+  limite_usado NUMERIC(15,2) NOT NULL DEFAULT 0,
+  dia_fechamento INTEGER NOT NULL DEFAULT 1, -- dia do mês que fecha a fatura
+  dia_vencimento INTEGER NOT NULL DEFAULT 10, -- dia do mês que vence a fatura
+  cor TEXT DEFAULT '#6366f1',
+  conta_bancaria_id UUID REFERENCES _financeiro_contas_bancarias(id) ON DELETE SET NULL, -- conta que paga a fatura
+  franquia_id UUID REFERENCES _financeiro_franquias(id) ON DELETE SET NULL,
+  is_pessoal BOOLEAN DEFAULT false,
+  usuario_id UUID REFERENCES _financeiro_usuarios(id) ON DELETE CASCADE,
+  ativo BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 11. Habilitar RLS na tabela de cartões de crédito
+ALTER TABLE _financeiro_cartoes_credito ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "service_role_cartoes" ON _financeiro_cartoes_credito FOR ALL TO service_role USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 12. Adicionar coluna cartao_credito_id na tabela de transações (para gastos no cartão)
+ALTER TABLE _financeiro_transacoes 
+ADD COLUMN IF NOT EXISTS cartao_credito_id UUID REFERENCES _financeiro_cartoes_credito(id) ON DELETE SET NULL;
+
+-- 13. Criar tabela de faturas do cartão
+CREATE TABLE IF NOT EXISTS _financeiro_faturas_cartao (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cartao_credito_id UUID NOT NULL REFERENCES _financeiro_cartoes_credito(id) ON DELETE CASCADE,
+  mes_referencia INTEGER NOT NULL, -- 1-12
+  ano_referencia INTEGER NOT NULL,
+  data_fechamento DATE NOT NULL,
+  data_vencimento DATE NOT NULL,
+  valor_total NUMERIC(15,2) NOT NULL DEFAULT 0,
+  valor_pago NUMERIC(15,2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'aberta', -- aberta, fechada, paga, parcial
+  transacao_pagamento_id UUID REFERENCES _financeiro_transacoes(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(cartao_credito_id, mes_referencia, ano_referencia)
+);
+
+ALTER TABLE _financeiro_faturas_cartao ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "service_role_faturas" ON _financeiro_faturas_cartao FOR ALL TO service_role USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 14. Índices para cartões e faturas
+CREATE INDEX IF NOT EXISTS idx_cartoes_usuario ON _financeiro_cartoes_credito(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_transacoes_cartao ON _financeiro_transacoes(cartao_credito_id);
+CREATE INDEX IF NOT EXISTS idx_faturas_cartao ON _financeiro_faturas_cartao(cartao_credito_id, ano_referencia, mes_referencia);
+
 -- Pronto! Todas as tabelas estão atualizadas.
 -- Agora você pode voltar ao sistema e usar todas as funcionalidades.

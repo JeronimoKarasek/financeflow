@@ -1,15 +1,24 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical } from 'lucide-react'
+import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils'
 import type { Transacao, Categoria, Franquia, ContaBancaria } from '@/types/database'
+
+interface CartaoCredito {
+  id: string
+  nome: string
+  bandeira: string
+  banco: string | null
+  ultimos_digitos: string | null
+}
 
 export default function TransacoesPage() {
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [franquias, setFranquias] = useState<Franquia[]>([])
   const [contas, setContas] = useState<ContaBancaria[]>([])
+  const [cartoes, setCartoes] = useState<CartaoCredito[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -19,11 +28,11 @@ export default function TransacoesPage() {
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
     data_pagamento: '', status: 'pendente', categoria_id: '', conta_bancaria_id: '', franquia_id: '',
-    is_pessoal: false, recorrente: false, recorrencia_tipo: '', observacoes: '', parcela_total: 1,
+    cartao_credito_id: '', is_pessoal: false, recorrente: false, recorrencia_tipo: '', observacoes: '', parcela_total: 1,
   })
 
   useEffect(() => {
-    Promise.all([fetchTransacoes(), fetchCategorias(), fetchFranquias(), fetchContas()])
+    Promise.all([fetchTransacoes(), fetchCategorias(), fetchFranquias(), fetchContas(), fetchCartoes()])
   }, [])
 
   const fetchTransacoes = async () => {
@@ -57,6 +66,14 @@ export default function TransacoesPage() {
     setContas(Array.isArray(data) ? data : [])
   }
 
+  const fetchCartoes = async () => {
+    try {
+      const res = await fetch('/api/cartoes')
+      const data = await res.json()
+      setCartoes(Array.isArray(data) ? data : [])
+    } catch { setCartoes([]) }
+  }
+
   useEffect(() => { fetchTransacoes() }, [filtros.tipo, filtros.status, filtros.franquia_id])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,7 +101,7 @@ export default function TransacoesPage() {
   const resetForm = () => setForm({
     tipo: 'despesa', descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
     data_pagamento: '', status: 'pendente', categoria_id: '', conta_bancaria_id: '', franquia_id: '',
-    is_pessoal: false, recorrente: false, recorrencia_tipo: '', observacoes: '', parcela_total: 1,
+    cartao_credito_id: '', is_pessoal: false, recorrente: false, recorrencia_tipo: '', observacoes: '', parcela_total: 1,
   })
 
   const handleEdit = (t: Transacao) => {
@@ -99,6 +116,7 @@ export default function TransacoesPage() {
       categoria_id: t.categoria_id || '',
       conta_bancaria_id: t.conta_bancaria_id || '',
       franquia_id: t.franquia_id || '',
+      cartao_credito_id: (t as Record<string, unknown>).cartao_credito_id as string || '',
       is_pessoal: t.is_pessoal || false,
       recorrente: t.recorrente || false,
       recorrencia_tipo: t.recorrencia_tipo || '',
@@ -315,12 +333,23 @@ export default function TransacoesPage() {
                   </select>
                 </div>
                 <div><label className="block text-xs text-gray-400 mb-1">Conta Bancária</label>
-                  <select value={form.conta_bancaria_id} onChange={(e) => setForm({...form, conta_bancaria_id: e.target.value})} className="w-full px-3 py-2 text-sm">
+                  <select value={form.conta_bancaria_id} onChange={(e) => setForm({...form, conta_bancaria_id: e.target.value, cartao_credito_id: ''})} className="w-full px-3 py-2 text-sm">
                     <option value="">Selecione</option>
                     {contas.map(c => <option key={c.id} value={c.id}>{c.nome} - {c.banco}</option>)}
                   </select>
                 </div>
               </div>
+
+              {form.tipo === 'despesa' && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Cartão de Crédito (opcional)</label>
+                  <select value={form.cartao_credito_id} onChange={(e) => setForm({...form, cartao_credito_id: e.target.value, conta_bancaria_id: ''})} className="w-full px-3 py-2 text-sm">
+                    <option value="">Nenhum (pagamento direto)</option>
+                    {cartoes.map(c => <option key={c.id} value={c.id}>💳 {c.nome} ({c.bandeira}) •••• {c.ultimos_digitos || '****'}</option>)}
+                  </select>
+                  {form.cartao_credito_id && <p className="text-[10px] text-indigo-400 mt-1">Gasto será vinculado à fatura do cartão</p>}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs text-gray-400 mb-1">Franquia</label>
