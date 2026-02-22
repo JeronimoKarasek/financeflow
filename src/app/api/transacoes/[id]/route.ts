@@ -62,15 +62,42 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const { id } = await params
     const supabase = createServerSupabase()
 
+    // Reverter saldo se a transação estava paga
+    const { data: original } = await supabase
+      .from('_financeiro_transacoes')
+      .select('status, tipo, valor, conta_bancaria_id')
+      .eq('id', id)
+      .single()
+
+    if (original && original.status === 'pago' && original.conta_bancaria_id) {
+      const { data: conta } = await supabase
+        .from('_financeiro_contas_bancarias')
+        .select('saldo_atual')
+        .eq('id', original.conta_bancaria_id)
+        .single()
+
+      if (conta) {
+        const valor = Number(original.valor)
+        const novoSaldo = original.tipo === 'receita'
+          ? Number(conta.saldo_atual) - valor
+          : Number(conta.saldo_atual) + valor
+
+        await supabase
+          .from('_financeiro_contas_bancarias')
+          .update({ saldo_atual: novoSaldo })
+          .eq('id', original.conta_bancaria_id)
+      }
+    }
+
     const { error } = await supabase
       .from('_financeiro_transacoes')
-      .update({ status: 'cancelado' })
+      .delete()
       .eq('id', id)
 
     if (error) throw error
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Transação DELETE error:', error)
-    return NextResponse.json({ error: 'Erro ao cancelar transação' }, { status: 500 })
+    return NextResponse.json({ error: 'Erro ao excluir transação' }, { status: 500 })
   }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2 } from 'lucide-react'
+import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils'
 import type { Transacao, Categoria, Franquia, ContaBancaria } from '@/types/database'
 
@@ -12,6 +12,9 @@ export default function TransacoesPage() {
   const [contas, setContas] = useState<ContaBancaria[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [actionMenu, setActionMenu] = useState<string | null>(null)
   const [filtros, setFiltros] = useState({ tipo: '', status: '', franquia_id: '', search: '' })
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
@@ -58,12 +61,22 @@ export default function TransacoesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await fetch('/api/transacoes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, valor: parseFloat(form.valor) }),
-    })
+    const payload = { ...form, valor: parseFloat(form.valor) }
+    if (editingId) {
+      await fetch(`/api/transacoes/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } else {
+      await fetch('/api/transacoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    }
     setShowModal(false)
+    setEditingId(null)
     resetForm()
     fetchTransacoes()
   }
@@ -74,6 +87,35 @@ export default function TransacoesPage() {
     is_pessoal: false, recorrente: false, recorrencia_tipo: '', observacoes: '', parcela_total: 1,
   })
 
+  const handleEdit = (t: Transacao) => {
+    setEditingId(t.id)
+    setForm({
+      tipo: t.tipo,
+      descricao: t.descricao,
+      valor: String(t.valor),
+      data_vencimento: t.data_vencimento?.split('T')[0] || '',
+      data_pagamento: t.data_pagamento?.split('T')[0] || '',
+      status: t.status,
+      categoria_id: t.categoria_id || '',
+      conta_bancaria_id: t.conta_bancaria_id || '',
+      franquia_id: t.franquia_id || '',
+      is_pessoal: t.is_pessoal || false,
+      recorrente: t.recorrente || false,
+      recorrencia_tipo: t.recorrencia_tipo || '',
+      observacoes: t.observacoes || '',
+      parcela_total: t.parcela_total || 1,
+    })
+    setShowModal(true)
+    setActionMenu(null)
+  }
+
+  const handleDelete = async (id: string) => {
+    await fetch(`/api/transacoes/${id}`, { method: 'DELETE' })
+    setDeleteConfirm(null)
+    setActionMenu(null)
+    fetchTransacoes()
+  }
+
   const handleStatusChange = async (id: string, novoStatus: string) => {
     await fetch(`/api/transacoes/${id}`, {
       method: 'PUT',
@@ -83,6 +125,7 @@ export default function TransacoesPage() {
         data_pagamento: novoStatus === 'pago' ? new Date().toISOString().split('T')[0] : null,
       }),
     })
+    setActionMenu(null)
     fetchTransacoes()
   }
 
@@ -100,7 +143,7 @@ export default function TransacoesPage() {
           <h1 className="text-2xl font-bold text-white">Transações</h1>
           <p className="text-gray-500 text-sm mt-1">Receitas, despesas e transferências</p>
         </div>
-        <button onClick={() => { resetForm(); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
+        <button onClick={() => { resetForm(); setEditingId(null); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
           <Plus className="w-4 h-4" /> Nova Transação
         </button>
       </div>
@@ -193,16 +236,37 @@ export default function TransacoesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      {t.status === 'pendente' && (
-                        <button onClick={() => handleStatusChange(t.id, 'pago')} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">
-                          Marcar Pago
+                      <div className="relative">
+                        <button onClick={() => setActionMenu(actionMenu === t.id ? null : t.id)} className="p-1.5 rounded-lg hover:bg-[#2a2a3a] transition-colors">
+                          <MoreVertical className="w-4 h-4 text-gray-400" />
                         </button>
-                      )}
-                      {t.status === 'atrasado' && (
-                        <button onClick={() => handleStatusChange(t.id, 'pago')} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium">
-                          Marcar Pago
-                        </button>
-                      )}
+                        {actionMenu === t.id && (
+                          <div className="absolute right-0 top-full mt-1 w-44 bg-[#1c1c28] border border-[#2a2a3a] rounded-xl shadow-xl z-20 py-1 animate-in fade-in slide-in-from-top-1">
+                            <button onClick={() => handleEdit(t)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-[#2a2a3a] hover:text-white transition-colors">
+                              <Pencil className="w-3.5 h-3.5" /> Editar
+                            </button>
+                            {(t.status === 'pendente' || t.status === 'atrasado') && (
+                              <button onClick={() => handleStatusChange(t.id, 'pago')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-400 hover:bg-[#2a2a3a] hover:text-emerald-300 transition-colors">
+                                <ArrowUpRight className="w-3.5 h-3.5" /> Marcar Pago
+                              </button>
+                            )}
+                            {t.status === 'pago' && (
+                              <button onClick={() => handleStatusChange(t.id, 'pendente')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-yellow-400 hover:bg-[#2a2a3a] hover:text-yellow-300 transition-colors">
+                                <ArrowDownRight className="w-3.5 h-3.5" /> Voltar Pendente
+                              </button>
+                            )}
+                            {t.status !== 'cancelado' && (
+                              <button onClick={() => handleStatusChange(t.id, 'cancelado')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-orange-400 hover:bg-[#2a2a3a] hover:text-orange-300 transition-colors">
+                                <X className="w-3.5 h-3.5" /> Cancelar
+                              </button>
+                            )}
+                            <div className="border-t border-[#2a2a3a] my-1" />
+                            <button onClick={() => { setDeleteConfirm(t.id); setActionMenu(null) }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" /> Excluir
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -218,8 +282,8 @@ export default function TransacoesPage() {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="relative w-full max-w-lg glass-card p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-white">Nova Transação</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <h2 className="text-lg font-bold text-white">{editingId ? 'Editar Transação' : 'Nova Transação'}</h2>
+              <button onClick={() => { setShowModal(false); setEditingId(null) }} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Tipo selector */}
@@ -286,13 +350,55 @@ export default function TransacoesPage() {
 
               <div><label className="block text-xs text-gray-400 mb-1">Observações</label><textarea value={form.observacoes} onChange={(e) => setForm({...form, observacoes: e.target.value})} className="w-full px-3 py-2 text-sm h-20 resize-none" /></div>
 
+              {editingId && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs text-gray-400 mb-1">Data Pagamento</label><input type="date" value={form.data_pagamento} onChange={(e) => setForm({...form, data_pagamento: e.target.value})} className="w-full px-3 py-2 text-sm" /></div>
+                  <div><label className="block text-xs text-gray-400 mb-1">Status</label>
+                    <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})} className="w-full px-3 py-2 text-sm">
+                      <option value="pendente">Pendente</option>
+                      <option value="pago">Pago</option>
+                      <option value="atrasado">Atrasado</option>
+                      <option value="agendado">Agendado</option>
+                      <option value="cancelado">Cancelado</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
-                <button type="submit" className="btn-primary flex-1 text-sm">Criar Transação</button>
+                <button type="button" onClick={() => { setShowModal(false); setEditingId(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button type="submit" className="btn-primary flex-1 text-sm">{editingId ? 'Salvar Alterações' : 'Criar Transação'}</button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal Confirmar Exclusão */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} />
+          <div className="relative w-full max-w-sm glass-card p-6">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
+                <Trash2 className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white mb-1">Excluir Transação</h3>
+                <p className="text-sm text-gray-400">Tem certeza? Esta ação não pode ser desfeita.</p>
+              </div>
+              <div className="flex gap-3 w-full">
+                <button onClick={() => setDeleteConfirm(null)} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 text-sm px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors font-medium">Excluir</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overlay para fechar menu de ações */}
+      {actionMenu && (
+        <div className="fixed inset-0 z-10" onClick={() => setActionMenu(null)} />
       )}
     </div>
   )
