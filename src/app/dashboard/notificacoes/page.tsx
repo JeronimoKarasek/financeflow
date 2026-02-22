@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bell, MessageSquare, CheckCircle2, XCircle, Clock, RefreshCw, Filter, Search } from 'lucide-react'
+import { Bell, MessageSquare, CheckCircle2, XCircle, Clock, RefreshCw, Search } from 'lucide-react'
 
 interface Notificacao {
   id: string
@@ -19,6 +19,7 @@ export default function NotificacoesPage() {
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<'todos' | 'enviado' | 'falhou' | 'pendente'>('todos')
   const [busca, setBusca] = useState('')
+  const [reenviando, setReenviando] = useState<string | null>(null)
 
   useEffect(() => {
     fetchNotificacoes()
@@ -26,20 +27,24 @@ export default function NotificacoesPage() {
 
   const fetchNotificacoes = async () => {
     setLoading(true)
-    // Mock data - in production would fetch from /api/notificacoes
-    setNotificacoes([
-      { id: '1', tipo: 'cobranca_vencendo', canal: 'whatsapp', destinatario: '5541999999999', mensagem: '⚠️ Olá! A cobrança "Mensalidade Jan" no valor de R$ 1.500,00 vence em 3 dias.', status: 'enviado', created_at: new Date().toISOString() },
-      { id: '2', tipo: 'cobranca_atrasada', canal: 'whatsapp', destinatario: '5541988888888', mensagem: '🚨 A cobrança "Aluguel Fev" está atrasada! Valor: R$ 3.200,00.', status: 'enviado', created_at: new Date(Date.now() - 86400000).toISOString() },
-      { id: '3', tipo: 'cobranca_vencendo', canal: 'whatsapp', destinatario: '5541977777777', mensagem: '⚠️ Cobrança próxima do vencimento: "Fornecedor X" - R$ 850,00', status: 'falhou', created_at: new Date(Date.now() - 172800000).toISOString() },
-      { id: '4', tipo: 'lembrete', canal: 'whatsapp', destinatario: '5541966666666', mensagem: '📋 Lembrete: Você tem 5 cobranças pendentes nesta semana.', status: 'enviado', created_at: new Date(Date.now() - 259200000).toISOString() },
-      { id: '5', tipo: 'cobranca_atrasada', canal: 'whatsapp', destinatario: '5541955555555', mensagem: '🚨 Cobranças atrasadas detectadas! Verifique seu painel.', status: 'pendente', created_at: new Date(Date.now() - 345600000).toISOString() },
-    ])
-    setLoading(false)
+    try {
+      const res = await fetch('/api/notificacoes?limite=100')
+      if (res.ok) {
+        const data = await res.json()
+        setNotificacoes(Array.isArray(data) ? data : [])
+      } else {
+        setNotificacoes([])
+      }
+    } catch {
+      setNotificacoes([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const filtered = notificacoes.filter(n => {
     if (filtro !== 'todos' && n.status !== filtro) return false
-    if (busca && !n.mensagem.toLowerCase().includes(busca.toLowerCase()) && !n.destinatario.includes(busca)) return false
+    if (busca && !n.mensagem?.toLowerCase().includes(busca.toLowerCase()) && !n.destinatario?.includes(busca)) return false
     return true
   })
 
@@ -55,6 +60,7 @@ export default function NotificacoesPage() {
       case 'enviado': return <CheckCircle2 className="w-4 h-4 text-emerald-400" />
       case 'falhou': return <XCircle className="w-4 h-4 text-red-400" />
       case 'pendente': return <Clock className="w-4 h-4 text-amber-400" />
+      default: return <Clock className="w-4 h-4 text-gray-400" />
     }
   }
 
@@ -63,15 +69,45 @@ export default function NotificacoesPage() {
       case 'enviado': return 'Enviado'
       case 'falhou': return 'Falhou'
       case 'pendente': return 'Pendente'
+      default: return status
+    }
+  }
+
+  const handleReenviar = async (notif: Notificacao) => {
+    setReenviando(notif.id)
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          numero: notif.destinatario,
+          mensagem: notif.mensagem,
+        }),
+      })
+      if (res.ok) {
+        alert('Mensagem reenviada com sucesso!')
+        fetchNotificacoes()
+      } else {
+        const err = await res.json()
+        alert(`Erro ao reenviar: ${err.error || 'Falha desconhecida'}`)
+      }
+    } catch {
+      alert('Erro de conexão ao reenviar')
+    } finally {
+      setReenviando(null)
     }
   }
 
   const verificarCobrancas = async () => {
     try {
       const res = await fetch('/api/whatsapp/check-cobrancas', { method: 'POST' })
-      const data = await res.json()
-      alert(`Verificação concluída!\n${data.enviados || 0} notificações enviadas.`)
-      fetchNotificacoes()
+      if (res.ok) {
+        const data = await res.json()
+        alert(`Verificação concluída!\n${data.enviados || 0} notificações enviadas.`)
+        fetchNotificacoes()
+      } else {
+        alert('Erro ao verificar cobranças')
+      }
     } catch {
       alert('Erro ao verificar cobranças')
     }
@@ -89,13 +125,12 @@ export default function NotificacoesPage() {
         </button>
       </div>
 
-      {/* Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total', count: counts.todos, color: 'text-gray-400', bg: 'bg-gray-500/10', filter: 'todos' as const },
-          { label: 'Enviados', count: counts.enviado, color: 'text-emerald-400', bg: 'bg-emerald-500/10', filter: 'enviado' as const },
-          { label: 'Falhas', count: counts.falhou, color: 'text-red-400', bg: 'bg-red-500/10', filter: 'falhou' as const },
-          { label: 'Pendentes', count: counts.pendente, color: 'text-amber-400', bg: 'bg-amber-500/10', filter: 'pendente' as const },
+          { label: 'Total', count: counts.todos, color: 'text-gray-400', filter: 'todos' as const },
+          { label: 'Enviados', count: counts.enviado, color: 'text-emerald-400', filter: 'enviado' as const },
+          { label: 'Falhas', count: counts.falhou, color: 'text-red-400', filter: 'falhou' as const },
+          { label: 'Pendentes', count: counts.pendente, color: 'text-amber-400', filter: 'pendente' as const },
         ].map(s => (
           <button key={s.label} onClick={() => setFiltro(s.filter)}
             className={`glass-card p-4 text-left transition-all ${filtro === s.filter ? 'ring-1 ring-indigo-500/30' : ''}`}>
@@ -105,20 +140,18 @@ export default function NotificacoesPage() {
         ))}
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por mensagem ou destinatário..."
           className="w-full pl-10 pr-4 py-2.5 text-sm" />
       </div>
 
-      {/* Timeline */}
       {loading ? (
         <div className="glass-card h-64 shimmer" />
       ) : filtered.length === 0 ? (
         <div className="glass-card p-12 text-center">
           <Bell className="w-12 h-12 mx-auto mb-4 text-gray-600" />
-          <p className="text-gray-500">Nenhuma notificação encontrada</p>
+          <p className="text-gray-500">{notificacoes.length === 0 ? 'Nenhuma notificação enviada ainda. Use "Verificar Cobranças" para enviar alertas automáticos.' : 'Nenhuma notificação com este filtro'}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -138,7 +171,7 @@ export default function NotificacoesPage() {
                       {statusLabel(n.status)}
                     </span>
                     <span className="text-xs text-gray-500 flex items-center gap-1">
-                      <MessageSquare className="w-3 h-3" /> {n.canal}
+                      <MessageSquare className="w-3 h-3" /> {n.canal || 'whatsapp'}
                     </span>
                     <span className="text-xs text-gray-600">•</span>
                     <span className="text-xs text-gray-500">
@@ -149,8 +182,12 @@ export default function NotificacoesPage() {
                   <p className="text-xs text-gray-600">Para: {n.destinatario}</p>
                 </div>
                 {n.status === 'falhou' && (
-                  <button className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3" /> Reenviar
+                  <button
+                    onClick={() => handleReenviar(n)}
+                    disabled={reenviando === n.id}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 whitespace-nowrap">
+                    <RefreshCw className={`w-3 h-3 ${reenviando === n.id ? 'animate-spin' : ''}`} />
+                    {reenviando === n.id ? 'Enviando...' : 'Reenviar'}
                   </button>
                 )}
               </div>

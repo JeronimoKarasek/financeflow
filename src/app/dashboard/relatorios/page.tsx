@@ -1,98 +1,141 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { FileBarChart, Download, Calendar, Building2, Filter } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Building2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell, Line, Legend,
   AreaChart, Area
 } from 'recharts'
-import type { Franquia } from '@/types/database'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6']
 
+interface FranquiaOption { id: string; nome: string; ativa: boolean }
+interface DreItem { label: string; valor: number; tipo: string }
+interface FluxoItem { mes: string; receitas: number; despesas: number; resultado: number }
+interface CatItem { nome: string; valor: number; cor: string }
+interface FranquiaData { nome: string; receitas: number; despesas: number; saldo: number }
+interface Transacao { tipo: string; status: string; valor: number; categoria_nome?: string; franquia_nome?: string; _financeiro_categorias?: { nome: string }; _financeiro_franquias?: { nome: string } }
+
 export default function RelatoriosPage() {
   const [tipoRelatorio, setTipoRelatorio] = useState<'dre' | 'fluxo' | 'categorias' | 'franquias'>('dre')
-  const [franquias, setFranquias] = useState<Franquia[]>([])
+  const [franquias, setFranquias] = useState<FranquiaOption[]>([])
   const [franquiaId, setFranquiaId] = useState('')
   const [periodo, setPeriodo] = useState({ mes: new Date().getMonth() + 1, ano: new Date().getFullYear() })
-  const [dreData, setDreData] = useState<Record<string, number>>({})
-  const [fluxoData, setFluxoData] = useState<{ mes: string; receitas: number; despesas: number; resultado: number }[]>([])
-  const [catData, setCatData] = useState<{ nome: string; valor: number; cor: string }[]>([])
+  const [dreData, setDreData] = useState<DreItem[]>([])
+  const [fluxoData, setFluxoData] = useState<FluxoItem[]>([])
+  const [catData, setCatData] = useState<CatItem[]>([])
+  const [franquiasData, setFranquiasData] = useState<FranquiaData[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchFranquias()
-    fetchData()
-  }, [tipoRelatorio, periodo, franquiaId])
+  useEffect(() => { fetchFranquias() }, [])
 
   const fetchFranquias = async () => {
-    const res = await fetch('/api/franquias')
-    const data = await res.json()
-    setFranquias(Array.isArray(data) ? data.filter((f: Franquia) => f.ativa) : [])
+    try {
+      const res = await fetch('/api/franquias')
+      const data = await res.json()
+      setFranquias(Array.isArray(data) ? data.filter((f: FranquiaOption) => f.ativa) : [])
+    } catch { /* ignore */ }
   }
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Use dashboard API for now as it has aggregated data
-      const res = await fetch(`/api/dashboard?periodo=ano`)
-      const data = await res.json()
+      const startDate = `${periodo.ano}-${String(periodo.mes).padStart(2, '0')}-01`
+      const endDate = new Date(periodo.ano, periodo.mes, 0).toISOString().split('T')[0]
 
-      // Mock DRE data
-      setDreData({
-        receita_bruta: data.totalReceitas || 158750,
-        deducoes: data.totalReceitas * 0.05 || 7937,
-        receita_liquida: data.totalReceitas * 0.95 || 150812,
-        custos: data.totalDespesas * 0.4 || 36936,
-        lucro_bruto: data.totalReceitas * 0.95 - data.totalDespesas * 0.4 || 113876,
-        despesas_operacionais: data.totalDespesas * 0.6 || 55404,
-        resultado_operacional: (data.totalReceitas * 0.95 - data.totalDespesas * 0.4) - data.totalDespesas * 0.6 || 58472,
-        resultado_liquido: data.saldo || 66410,
+      const params = new URLSearchParams({ data_inicio: startDate, data_fim: endDate, limit: '10000' })
+      if (franquiaId) params.set('franquia_id', franquiaId)
+
+      const res = await fetch(`/api/transacoes?${params}`)
+      const result = await res.json()
+      const transacoes: Transacao[] = (result.data || []).map((t: Transacao) => ({
+        ...t,
+        categoria_nome: t._financeiro_categorias?.nome || 'Sem categoria',
+        franquia_nome: t._financeiro_franquias?.nome || null,
+      }))
+
+      const receitas = transacoes.filter(t => t.tipo === 'receita' && t.status === 'pago')
+      const despesas = transacoes.filter(t => t.tipo === 'despesa' && t.status === 'pago')
+      const totalReceitas = receitas.reduce((s, t) => s + Number(t.valor), 0)
+      const totalDespesas = despesas.reduce((s, t) => s + Number(t.valor), 0)
+      const resultadoLiq = totalReceitas - totalDespesas
+
+      setDreData([
+        { label: 'Receita Bruta', valor: totalReceitas, tipo: 'header' },
+        { label: '(-) Impostos (~3,65%)', valor: -(totalReceitas * 0.0365), tipo: 'sub' },
+        { label: '= Receita Líquida', valor: totalReceitas * 0.9635, tipo: 'total' },
+        { label: '(-) Custos Diretos', valor: -(totalDespesas * 0.4), tipo: 'sub' },
+        { label: '= Lucro Bruto', valor: totalReceitas * 0.9635 - totalDespesas * 0.4, tipo: 'total' },
+        { label: '(-) Despesas Operacionais', valor: -(totalDespesas * 0.6), tipo: 'sub' },
+        { label: '= Resultado Operacional', valor: totalReceitas * 0.9635 - totalDespesas, tipo: 'total' },
+        { label: '= RESULTADO LÍQUIDO', valor: resultadoLiq, tipo: 'final' },
+      ])
+
+      // Fluxo mensal real da API dashboard
+      try {
+        const fluxoRes = await fetch('/api/dashboard?periodo=ano')
+        const fluxoResult = await fluxoRes.json()
+        setFluxoData((fluxoResult.fluxoMensal || []).map((f: { mes: string; receitas: number; despesas: number }) => ({
+          ...f, resultado: f.receitas - f.despesas,
+        })))
+        setCatData(fluxoResult.categoriasDespesas || [])
+      } catch {
+        setFluxoData([])
+        setCatData([])
+      }
+
+      // Categorias do período atual
+      const catMap = new Map<string, number>()
+      despesas.forEach(t => {
+        const cat = t.categoria_nome || 'Sem categoria'
+        catMap.set(cat, (catMap.get(cat) || 0) + Number(t.valor))
       })
+      if (catMap.size > 0) {
+        setCatData(Array.from(catMap.entries())
+          .map(([nome, valor], i) => ({ nome, valor, cor: COLORS[i % COLORS.length] }))
+          .sort((a, b) => b.valor - a.valor))
+      }
 
-      setFluxoData(data.fluxoMensal || [
-        { mes: 'Set', receitas: 38000, despesas: 25000, resultado: 13000 },
-        { mes: 'Out', receitas: 42000, despesas: 28000, resultado: 14000 },
-        { mes: 'Nov', receitas: 39500, despesas: 26500, resultado: 13000 },
-        { mes: 'Dez', receitas: 51000, despesas: 31000, resultado: 20000 },
-        { mes: 'Jan', receitas: 43200, despesas: 27800, resultado: 15400 },
-        { mes: 'Fev', receitas: 45200, despesas: 28600, resultado: 16600 },
-      ])
+      // Franquias comparativo
+      if (franquias.length > 0) {
+        const franqMap = new Map<string, { receitas: number; despesas: number }>()
+        franquias.forEach(f => franqMap.set(f.nome, { receitas: 0, despesas: 0 }))
+        transacoes.forEach(t => {
+          if (t.status !== 'pago' || !t.franquia_nome) return
+          const entry = franqMap.get(t.franquia_nome)
+          if (!entry) return
+          if (t.tipo === 'receita') entry.receitas += Number(t.valor)
+          else entry.despesas += Number(t.valor)
+        })
+        setFranquiasData(Array.from(franqMap.entries()).map(([nome, v]) => ({
+          nome, receitas: v.receitas, despesas: v.despesas, saldo: v.receitas - v.despesas,
+        })))
+      }
+    } catch (err) {
+      console.error('Erro ao carregar relatório:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [periodo, franquiaId, franquias])
 
-      setCatData(data.categoriasDespesas || [
-        { nome: 'Salários', valor: 42000, cor: '#f97316' },
-        { nome: 'Aluguel', valor: 18000, cor: '#ef4444' },
-        { nome: 'Marketing', valor: 12500, cor: '#ec4899' },
-        { nome: 'Fornecedores', valor: 9800, cor: '#f59e0b' },
-        { nome: 'Tecnologia', valor: 5400, cor: '#6366f1' },
-        { nome: 'Outros', valor: 4640, cor: '#6b7280' },
-      ])
-    } catch { /* ignore */ }
-    finally { setLoading(false) }
-  }
+  useEffect(() => { fetchData() }, [fetchData])
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Relatórios</h1>
-          <p className="text-gray-500 text-sm mt-1">Análises financeiras completas</p>
-        </div>
-        <button className="btn-secondary flex items-center gap-2 text-sm">
-          <Download className="w-4 h-4" /> Exportar PDF
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold text-white">Relatórios</h1>
+        <p className="text-gray-500 text-sm mt-1">Análises financeiras baseadas em dados reais</p>
       </div>
 
-      {/* Report Type Tabs */}
       <div className="flex flex-wrap gap-2">
-        {[
+        {([
           { id: 'dre' as const, label: 'DRE' },
           { id: 'fluxo' as const, label: 'Fluxo de Caixa' },
           { id: 'categorias' as const, label: 'Por Categorias' },
           { id: 'franquias' as const, label: 'Por Franquias' },
-        ].map(tab => (
+        ]).map(tab => (
           <button key={tab.id} onClick={() => setTipoRelatorio(tab.id)}
             className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
               tipoRelatorio === tab.id
@@ -104,7 +147,6 @@ export default function RelatoriosPage() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <select value={franquiaId} onChange={(e) => setFranquiaId(e.target.value)} className="px-3 py-2 text-sm">
           <option value="">Todas Franquias</option>
@@ -122,108 +164,139 @@ export default function RelatoriosPage() {
         <div className="glass-card h-96 shimmer" />
       ) : (
         <>
-          {/* DRE */}
           {tipoRelatorio === 'dre' && (
             <div className="glass-card p-6">
               <h3 className="text-lg font-semibold text-white mb-6">Demonstrativo de Resultado do Exercício</h3>
-              <div className="space-y-3">
-                {[
-                  { label: 'Receita Bruta', value: dreData.receita_bruta, type: 'header' },
-                  { label: '(-) Deduções', value: -dreData.deducoes, type: 'sub' },
-                  { label: '= Receita Líquida', value: dreData.receita_liquida, type: 'total' },
-                  { label: '(-) Custos', value: -dreData.custos, type: 'sub' },
-                  { label: '= Lucro Bruto', value: dreData.lucro_bruto, type: 'total' },
-                  { label: '(-) Despesas Operacionais', value: -dreData.despesas_operacionais, type: 'sub' },
-                  { label: '= Resultado Operacional', value: dreData.resultado_operacional, type: 'total' },
-                  { label: '= RESULTADO LÍQUIDO', value: dreData.resultado_liquido, type: 'final' },
-                ].map((item, i) => (
-                  <div key={i} className={`flex items-center justify-between py-3 px-4 rounded-lg ${
-                    item.type === 'final' ? 'bg-indigo-500/10 border border-indigo-500/20' :
-                    item.type === 'total' ? 'bg-[#1c1c28]' : ''
-                  } ${item.type === 'header' ? 'border-b border-[#2a2a3a]' : ''}`}>
-                    <span className={`text-sm ${item.type === 'final' ? 'font-bold text-white' : item.type === 'total' ? 'font-semibold text-gray-200' : 'text-gray-400'}`}>
-                      {item.label}
-                    </span>
-                    <span className={`text-sm font-semibold ${
-                      item.type === 'final' ? (item.value >= 0 ? 'text-emerald-400' : 'text-red-400') :
-                      item.value >= 0 ? 'text-gray-200' : 'text-red-400'
-                    }`}>
-                      {formatCurrency(item.value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {dreData.every(d => d.valor === 0) ? (
+                <p className="text-gray-500 text-sm text-center py-12">Nenhuma transação encontrada neste período. Cadastre receitas e despesas para gerar o DRE.</p>
+              ) : (
+                <div className="space-y-3">
+                  {dreData.map((item, i) => (
+                    <div key={i} className={`flex items-center justify-between py-3 px-4 rounded-lg ${
+                      item.tipo === 'final' ? 'bg-indigo-500/10 border border-indigo-500/20' :
+                      item.tipo === 'total' ? 'bg-[#1c1c28]' : ''
+                    } ${item.tipo === 'header' ? 'border-b border-[#2a2a3a]' : ''}`}>
+                      <span className={`text-sm ${item.tipo === 'final' ? 'font-bold text-white' : item.tipo === 'total' ? 'font-semibold text-gray-200' : 'text-gray-400'}`}>
+                        {item.label}
+                      </span>
+                      <span className={`text-sm font-semibold ${
+                        item.tipo === 'final' ? (item.valor >= 0 ? 'text-emerald-400' : 'text-red-400') :
+                        item.valor >= 0 ? 'text-gray-200' : 'text-red-400'
+                      }`}>
+                        {formatCurrency(item.valor)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Fluxo de Caixa */}
           {tipoRelatorio === 'fluxo' && (
             <div className="glass-card p-6">
               <h3 className="text-lg font-semibold text-white mb-6">Fluxo de Caixa</h3>
-              <ResponsiveContainer width="100%" height={400}>
-                <AreaChart data={fluxoData}>
-                  <defs>
-                    <linearGradient id="rec" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="desp" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                  <XAxis dataKey="mes" stroke="#6b7280" fontSize={12} />
-                  <YAxis stroke="#6b7280" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
-                  <Legend />
-                  <Area type="monotone" dataKey="receitas" stroke="#10b981" fill="url(#rec)" strokeWidth={2} name="Receitas" />
-                  <Area type="monotone" dataKey="despesas" stroke="#ef4444" fill="url(#desp)" strokeWidth={2} name="Despesas" />
-                  <Line type="monotone" dataKey="resultado" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} name="Resultado" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {fluxoData.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-12">Nenhum dado de fluxo disponível. Cadastre transações para visualizar.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={400}>
+                  <AreaChart data={fluxoData}>
+                    <defs>
+                      <linearGradient id="rec" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="desp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                    <XAxis dataKey="mes" stroke="#6b7280" fontSize={12} />
+                    <YAxis stroke="#6b7280" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
+                    <Legend />
+                    <Area type="monotone" dataKey="receitas" stroke="#10b981" fill="url(#rec)" strokeWidth={2} name="Receitas" />
+                    <Area type="monotone" dataKey="despesas" stroke="#ef4444" fill="url(#desp)" strokeWidth={2} name="Despesas" />
+                    <Line type="monotone" dataKey="resultado" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} name="Resultado" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           )}
 
-          {/* Categorias */}
           {tipoRelatorio === 'categorias' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="glass-card p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Despesas por Categoria</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie data={catData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="valor">
-                      {catData.map((entry, i) => <Cell key={i} fill={entry.cor || COLORS[i % COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
-                  </PieChart>
-                </ResponsiveContainer>
+                {catData.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-12">Nenhuma despesa encontrada neste período.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie data={catData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="valor">
+                        {catData.map((entry, i) => <Cell key={i} fill={entry.cor || COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
               <div className="glass-card p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Detalhamento</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={catData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                    <XAxis type="number" stroke="#6b7280" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                    <YAxis type="category" dataKey="nome" stroke="#6b7280" fontSize={12} width={100} />
-                    <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
-                    <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
-                      {catData.map((entry, i) => <Cell key={i} fill={entry.cor || COLORS[i % COLORS.length]} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {catData.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-12">Sem dados</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={catData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                      <XAxis type="number" stroke="#6b7280" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                      <YAxis type="category" dataKey="nome" stroke="#6b7280" fontSize={12} width={100} />
+                      <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
+                      <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
+                        {catData.map((entry, i) => <Cell key={i} fill={entry.cor || COLORS[i % COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           )}
 
-          {/* Franquias */}
           {tipoRelatorio === 'franquias' && (
             <div className="glass-card p-6">
               <h3 className="text-lg font-semibold text-white mb-6">Comparativo entre Franquias</h3>
-              <div className="text-center text-gray-500 py-12">
-                <Building2 className="w-12 h-12 mx-auto mb-4 text-gray-600" />
-                <p>Cadastre suas franquias e transações para visualizar o comparativo</p>
-              </div>
+              {franquiasData.length === 0 || franquiasData.every(f => f.receitas === 0 && f.despesas === 0) ? (
+                <div className="text-center text-gray-500 py-12">
+                  <Building2 className="w-12 h-12 mx-auto mb-4 text-gray-600" />
+                  <p>Cadastre franquias e transações para visualizar o comparativo</p>
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={franquiasData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                      <XAxis dataKey="nome" stroke="#6b7280" fontSize={12} />
+                      <YAxis stroke="#6b7280" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: '#16161f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f0f0f5' }} formatter={(v: number) => [formatCurrency(v)]} />
+                      <Legend />
+                      <Bar dataKey="receitas" fill="#10b981" radius={[4, 4, 0, 0]} name="Receitas" />
+                      <Bar dataKey="despesas" fill="#ef4444" radius={[4, 4, 0, 0]} name="Despesas" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-6 space-y-2">
+                    {franquiasData.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#1c1c28]">
+                        <span className="text-sm text-white">{f.nome}</span>
+                        <div className="flex items-center gap-6 text-sm">
+                          <span className="text-emerald-400">{formatCurrency(f.receitas)}</span>
+                          <span className="text-red-400">{formatCurrency(f.despesas)}</span>
+                          <span className={f.saldo >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{formatCurrency(f.saldo)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </>
