@@ -70,12 +70,14 @@ BEGIN
       '_financeiro_fluxo_caixa'
     ])
   LOOP
-    EXECUTE format(
-      'CREATE POLICY IF NOT EXISTS "service_role_%s" ON %I FOR ALL TO service_role USING (true) WITH CHECK (true)',
-      t, t
-    );
-  EXCEPTION WHEN duplicate_object THEN
-    NULL; -- Política já existe, ignorar
+    BEGIN
+      EXECUTE format(
+        'CREATE POLICY "service_role_%s" ON %I FOR ALL TO service_role USING (true) WITH CHECK (true)',
+        t, t
+      );
+    EXCEPTION WHEN duplicate_object THEN
+      NULL; -- Política já existe, ignorar
+    END;
   END LOOP;
 END $$;
 
