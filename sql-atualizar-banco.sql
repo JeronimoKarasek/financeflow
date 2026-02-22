@@ -30,12 +30,15 @@ CREATE TABLE IF NOT EXISTS _financeiro_preferencias_notificacao (
 ALTER TABLE _financeiro_preferencias_notificacao ENABLE ROW LEVEL SECURITY;
 
 -- 5. Política para service_role acessar tudo (o app usa service role key)
-CREATE POLICY "Service role full access on _financeiro_preferencias_notificacao" 
-ON _financeiro_preferencias_notificacao
-FOR ALL 
-TO service_role 
-USING (true) 
-WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "Service role full access on _financeiro_preferencias_notificacao" 
+  ON _financeiro_preferencias_notificacao
+  FOR ALL 
+  TO service_role 
+  USING (true) 
+  WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 6. Tornar 'nome' opcional na tabela de integrações (a API de configurações não envia nome)
 -- Se a coluna 'nome' for NOT NULL, remover essa restrição:
