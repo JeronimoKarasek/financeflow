@@ -56,6 +56,12 @@ export async function PUT(request: Request) {
     const { id, ...updateData } = body
     const supabase = createServerSupabase()
 
+    // Limpar campos opcionais vazios para null
+    const optionalFields = ['franquia_id', 'usuario_id', 'api_key', 'api_secret', 'access_token', 'webhook_url']
+    for (const field of optionalFields) {
+      if (updateData[field] === '' || updateData[field] === undefined) updateData[field] = null
+    }
+
     const { data, error } = await supabase
       .from('_financeiro_integracoes')
       .update(updateData)
@@ -63,10 +69,35 @@ export async function PUT(request: Request) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Integrações PUT Supabase error:', error)
+      return NextResponse.json({ error: error.message || 'Erro ao atualizar integração', code: error.code }, { status: 500 })
+    }
     return NextResponse.json(data)
   } catch (error) {
     console.error('Integrações PUT error:', error)
     return NextResponse.json({ error: 'Erro ao atualizar integração' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json()
+    const { id } = body
+    const supabase = createServerSupabase()
+
+    const { error } = await supabase
+      .from('_financeiro_integracoes')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Integrações DELETE error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Integrações DELETE error:', error)
+    return NextResponse.json({ error: 'Erro ao excluir integração' }, { status: 500 })
   }
 }

@@ -3,16 +3,39 @@ import { createServerSupabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
+// Buscar credenciais da Evolution API no banco, fallback para env vars
+async function getEvolutionConfig() {
+  try {
+    const supabase = createServerSupabase()
+    const { data } = await supabase
+      .from('_financeiro_integracoes')
+      .select('*')
+      .eq('provedor', 'evolution_api')
+      .eq('ativa', true)
+      .single()
+    if (data) {
+      return {
+        url: (data.configuracoes_extra?.api_url as string) || '',
+        key: data.api_key || '',
+        instance: (data.configuracoes_extra?.instance_name as string) || 'farolfinance',
+      }
+    }
+  } catch { /* fallback abaixo */ }
+  return {
+    url: process.env.EVOLUTION_API_URL || '',
+    key: process.env.EVOLUTION_API_KEY || '',
+    instance: process.env.EVOLUTION_INSTANCE || 'farolfinance',
+  }
+}
+
 // CRON/Webhook para verificar cobranças e enviar lembretes
 export async function POST() {
   try {
     const supabase = createServerSupabase()
-    const evolutionUrl = process.env.EVOLUTION_API_URL
-    const evolutionKey = process.env.EVOLUTION_API_KEY
-    const instance = process.env.EVOLUTION_INSTANCE || 'farolfinance'
+    const { url: evolutionUrl, key: evolutionKey, instance } = await getEvolutionConfig()
 
     if (!evolutionUrl || !evolutionKey) {
-      return NextResponse.json({ error: 'Evolution API não configurada' }, { status: 400 })
+      return NextResponse.json({ error: 'Evolution API não configurada. Configure em Integrações.' }, { status: 400 })
     }
 
     // Marcar cobranças atrasadas

@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server'
+import { createServerSupabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
+
+// Buscar credenciais da Evolution API no banco, fallback para env vars
+async function getEvolutionConfig() {
+  try {
+    const supabase = createServerSupabase()
+    const { data } = await supabase
+      .from('_financeiro_integracoes')
+      .select('*')
+      .eq('provedor', 'evolution_api')
+      .eq('ativa', true)
+      .single()
+    if (data) {
+      return {
+        url: (data.configuracoes_extra?.api_url as string) || '',
+        key: data.api_key || '',
+        instance: (data.configuracoes_extra?.instance_name as string) || 'farolfinance',
+      }
+    }
+  } catch { /* fallback abaixo */ }
+  return {
+    url: process.env.EVOLUTION_API_URL || '',
+    key: process.env.EVOLUTION_API_KEY || '',
+    instance: process.env.EVOLUTION_INSTANCE || 'farolfinance',
+  }
+}
 
 // Enviar mensagem via Evolution API (WhatsApp)
 export async function POST(request: Request) {
@@ -11,12 +37,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Telefone e mensagem são obrigatórios' }, { status: 400 })
     }
 
-    const evolutionUrl = process.env.EVOLUTION_API_URL
-    const evolutionKey = process.env.EVOLUTION_API_KEY
-    const instance = process.env.EVOLUTION_INSTANCE || 'farolfinance'
+    const { url: evolutionUrl, key: evolutionKey, instance } = await getEvolutionConfig()
 
     if (!evolutionUrl || !evolutionKey) {
-      return NextResponse.json({ error: 'Evolution API não configurada' }, { status: 400 })
+      return NextResponse.json({ error: 'Evolution API não configurada. Vá em Integrações e configure a Evolution API.' }, { status: 400 })
     }
 
     // Formatar número para WhatsApp
@@ -44,7 +68,6 @@ export async function POST(request: Request) {
     }
 
     // Salvar log da notificação
-    const { createServerSupabase } = await import('@/lib/supabase')
     const supabase = createServerSupabase()
 
     await supabase.from('_financeiro_notificacoes_log').insert({
