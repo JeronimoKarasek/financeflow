@@ -78,24 +78,51 @@ export default function TransacoesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const payload = { ...form, valor: parseFloat(form.valor) }
-    if (editingId) {
-      await fetch(`/api/transacoes/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-    } else {
-      await fetch('/api/transacoes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+    // Limpar campos vazios para null (evitar erro de FK constraint)
+    const payload: Record<string, unknown> = {
+      tipo: form.tipo,
+      descricao: form.descricao,
+      valor: parseFloat(form.valor),
+      data_vencimento: form.data_vencimento || null,
+      data_pagamento: form.data_pagamento || null,
+      status: form.status,
+      categoria_id: form.categoria_id || null,
+      conta_bancaria_id: form.conta_bancaria_id || null,
+      franquia_id: form.franquia_id || null,
+      cartao_credito_id: form.cartao_credito_id || null,
+      is_pessoal: form.is_pessoal,
+      recorrente: form.recorrente,
+      recorrencia_tipo: form.recorrencia_tipo || null,
+      observacoes: form.observacoes || null,
+      parcela_total: form.parcela_total || 1,
     }
-    setShowModal(false)
-    setEditingId(null)
-    resetForm()
-    fetchTransacoes()
+    try {
+      let res: Response
+      if (editingId) {
+        res = await fetch(`/api/transacoes/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      } else {
+        res = await fetch('/api/transacoes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || 'Erro ao salvar transação')
+        return
+      }
+      setShowModal(false)
+      setEditingId(null)
+      resetForm()
+      fetchTransacoes()
+    } catch {
+      alert('Erro de conexão ao salvar transação')
+    }
   }
 
   const resetForm = () => setForm({

@@ -9,6 +9,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const body = await request.json()
     const supabase = createServerSupabase()
 
+    // Limpar campos vazios para null (evitar FK constraint com strings vazias)
+    const nullableFields = ['categoria_id', 'conta_bancaria_id', 'franquia_id', 'cartao_credito_id', 'data_pagamento', 'recorrencia_tipo', 'observacoes', 'usuario_id']
+    for (const field of nullableFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
+
     // Buscar transação original antes de atualizar (para ajustar saldo)
     const { data: original } = await supabase
       .from('_financeiro_transacoes')
