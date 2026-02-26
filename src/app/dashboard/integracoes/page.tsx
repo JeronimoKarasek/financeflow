@@ -29,6 +29,8 @@ export default function IntegracoesPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [form, setForm] = useState({
     nome: '', provedor: '', api_key: '', api_secret: '', access_token: '',
     webhook_url: '', ambiente: 'sandbox', franquia_id: '',
@@ -56,13 +58,40 @@ export default function IntegracoesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await fetch('/api/integracoes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    setShowModal(false)
-    fetchIntegracoes()
+    setSubmitting(true)
+    setFormError(null)
+
+    // Limpar campos vazios para null e adicionar defaults
+    const payload: Record<string, unknown> = {
+      ...form,
+      franquia_id: form.franquia_id || null,
+      api_key: form.api_key || null,
+      api_secret: form.api_secret || null,
+      access_token: form.access_token || null,
+      webhook_url: form.webhook_url || null,
+      ativa: true,
+      configuracoes_extra: {},
+    }
+
+    try {
+      const res = await fetch('/api/integracoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setFormError(data.error || 'Erro ao salvar integração')
+        setSubmitting(false)
+        return
+      }
+      setShowModal(false)
+      setForm({ nome: '', provedor: '', api_key: '', api_secret: '', access_token: '', webhook_url: '', ambiente: 'sandbox', franquia_id: '' })
+      fetchIntegracoes()
+    } catch {
+      setFormError('Erro de conexão. Tente novamente.')
+    }
+    setSubmitting(false)
   }
 
   const toggleActive = async (integ: Integracao) => {
@@ -179,6 +208,11 @@ export default function IntegracoesPage() {
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {formError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+                  {formError}
+                </div>
+              )}
               {form.provedor === 'c6bank' && (
                 <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300">
                   <strong>C6 Bank:</strong> API Key = Client ID | API Secret = Client Secret | Access Token = Chave PIX
@@ -212,8 +246,10 @@ export default function IntegracoesPage() {
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
-                <button type="submit" className="btn-primary flex-1 text-sm">Salvar Integração</button>
+                <button type="button" onClick={() => { setShowModal(false); setFormError(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button type="submit" disabled={submitting} className="btn-primary flex-1 text-sm disabled:opacity-50">
+                  {submitting ? 'Salvando...' : 'Salvar Integração'}
+                </button>
               </div>
             </form>
           </div>

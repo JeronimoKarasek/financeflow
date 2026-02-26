@@ -24,13 +24,25 @@ export async function POST(request: Request) {
     const body = await request.json()
     const supabase = createServerSupabase()
 
+    // Limpar campos opcionais vazios para null
+    const optionalFields = ['franquia_id', 'usuario_id', 'api_key', 'api_secret', 'access_token', 'webhook_url']
+    for (const field of optionalFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
+    // Garantir defaults
+    if (body.ativa === undefined) body.ativa = true
+    if (!body.configuracoes_extra) body.configuracoes_extra = {}
+
     const { data, error } = await supabase
       .from('_financeiro_integracoes')
       .insert(body)
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Integrações POST Supabase error:', error)
+      return NextResponse.json({ error: error.message || 'Erro ao criar integração', code: error.code }, { status: 500 })
+    }
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
     console.error('Integrações POST error:', error)
