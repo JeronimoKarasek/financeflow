@@ -80,6 +80,8 @@ export default function CartoesPage() {
   const [faturaLoading, setFaturaLoading] = useState(false)
   const [faturaMes, setFaturaMes] = useState(new Date().getMonth() + 1)
   const [faturaAno, setFaturaAno] = useState(new Date().getFullYear())
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     nome: '', bandeira: 'visa', banco: '', ultimos_digitos: '',
@@ -135,6 +137,9 @@ export default function CartoesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
+    setFormError(null)
+
     const payload = {
       ...form,
       limite_total: parseFloat(form.limite_total),
@@ -142,23 +147,37 @@ export default function CartoesPage() {
       dia_vencimento: parseInt(form.dia_vencimento),
     }
 
-    if (editingId) {
-      await fetch('/api/cartoes', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, id: editingId }),
-      })
-    } else {
-      await fetch('/api/cartoes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+    try {
+      let res: Response
+      if (editingId) {
+        res = await fetch('/api/cartoes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, id: editingId }),
+        })
+      } else {
+        res = await fetch('/api/cartoes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+
+      const data = await res.json()
+      if (!res.ok) {
+        setFormError(data.error || 'Erro ao salvar cartão. Verifique se a tabela foi criada no banco.')
+        setSubmitting(false)
+        return
+      }
+
+      setShowModal(false)
+      setEditingId(null)
+      resetForm()
+      fetchCartoes()
+    } catch {
+      setFormError('Erro de conexão. Tente novamente.')
     }
-    setShowModal(false)
-    setEditingId(null)
-    resetForm()
-    fetchCartoes()
+    setSubmitting(false)
   }
 
   const handleEdit = (c: CartaoCredito) => {
@@ -379,6 +398,11 @@ export default function CartoesPage() {
               <button onClick={() => { setShowModal(false); setEditingId(null) }} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {formError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+                  {formError}
+                </div>
+              )}
               <div><label className="block text-xs text-gray-400 mb-1">Nome do Cartão *</label>
                 <input type="text" value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} className="w-full px-3 py-2 text-sm" placeholder="Ex: Nubank Ultravioleta" required />
               </div>
@@ -440,8 +464,10 @@ export default function CartoesPage() {
               </label>
 
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => { setShowModal(false); setEditingId(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
-                <button type="submit" className="btn-primary flex-1 text-sm">{editingId ? 'Salvar' : 'Cadastrar'}</button>
+                <button type="button" onClick={() => { setShowModal(false); setEditingId(null); setFormError(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button type="submit" disabled={submitting} className="btn-primary flex-1 text-sm disabled:opacity-50">
+                  {submitting ? 'Salvando...' : editingId ? 'Salvar' : 'Cadastrar'}
+                </button>
               </div>
             </form>
           </div>

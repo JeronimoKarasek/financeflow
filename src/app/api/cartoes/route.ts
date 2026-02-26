@@ -12,11 +12,18 @@ export async function GET() {
       .eq('ativo', true)
       .order('nome')
 
-    if (error) throw error
-    return NextResponse.json(data)
+    if (error) {
+      console.error('Cartões GET Supabase error:', error)
+      // Se a tabela não existe, retornar array vazio com aviso
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return NextResponse.json([])
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json(data || [])
   } catch (error) {
     console.error('Cartões GET error:', error)
-    return NextResponse.json({ error: 'Erro ao buscar cartões' }, { status: 500 })
+    return NextResponse.json([], { status: 200 })
   }
 }
 
@@ -25,9 +32,11 @@ export async function POST(request: Request) {
     const body = await request.json()
     const supabase = createServerSupabase()
 
-    if (!body.franquia_id) body.franquia_id = null
-    if (!body.usuario_id) body.usuario_id = null
-    if (!body.conta_bancaria_id) body.conta_bancaria_id = null
+    // Limpar campos opcionais vazios para null
+    const optionalFields = ['franquia_id', 'usuario_id', 'conta_bancaria_id', 'banco', 'ultimos_digitos']
+    for (const field of optionalFields) {
+      if (body[field] === '' || body[field] === undefined) body[field] = null
+    }
 
     const { data, error } = await supabase
       .from('_financeiro_cartoes_credito')
@@ -35,7 +44,10 @@ export async function POST(request: Request) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Cartões POST Supabase error:', error)
+      return NextResponse.json({ error: error.message || 'Erro ao criar cartão', details: error.code }, { status: 500 })
+    }
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
     console.error('Cartões POST error:', error)
@@ -51,8 +63,11 @@ export async function PUT(request: Request) {
 
     const supabase = createServerSupabase()
 
-    if (updateData.franquia_id === '') updateData.franquia_id = null
-    if (updateData.conta_bancaria_id === '') updateData.conta_bancaria_id = null
+    // Limpar campos opcionais vazios para null
+    const optionalFields = ['franquia_id', 'conta_bancaria_id', 'banco', 'ultimos_digitos']
+    for (const field of optionalFields) {
+      if (updateData[field] === '' || updateData[field] === undefined) updateData[field] = null
+    }
 
     const { data, error } = await supabase
       .from('_financeiro_cartoes_credito')
@@ -61,7 +76,10 @@ export async function PUT(request: Request) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Cartões PUT Supabase error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
     return NextResponse.json(data)
   } catch (error) {
     console.error('Cartões PUT error:', error)
