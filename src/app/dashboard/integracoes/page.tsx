@@ -18,7 +18,7 @@ const PROVEDORES = [
   { id: 'inter', nome: 'Inter', cor: '#FF7A00', desc: 'Integração bancária' },
   { id: 'sicoob', nome: 'Sicoob', cor: '#003641', desc: 'Cooperativa de crédito' },
   { id: 'caixa', nome: 'Caixa', cor: '#005CA9', desc: 'Integração bancária' },
-  { id: 'c6bank', nome: 'C6 Bank', cor: '#242424', desc: 'Integração bancária' },
+  { id: 'c6bank', nome: 'C6 Bank', cor: '#242424', desc: 'PIX, Boletos, Checkout, DDA, Extrato' },
   { id: 'stone', nome: 'Stone', cor: '#00A868', desc: 'Pagamentos' },
   { id: 'pagseguro', nome: 'PagSeguro', cor: '#FFC800', desc: 'Pagamentos' },
 ]
@@ -179,6 +179,11 @@ export default function IntegracoesPage() {
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {form.provedor === 'c6bank' && (
+                <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300">
+                  <strong>C6 Bank:</strong> API Key = Client ID | API Secret = Client Secret | Access Token = Chave PIX
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs text-gray-400 mb-1">Nome</label><input type="text" value={form.nome} onChange={(e) => setForm({...form, nome: e.target.value})} className="w-full px-3 py-2 text-sm" required /></div>
                 <div><label className="block text-xs text-gray-400 mb-1">Provedor</label>
@@ -188,9 +193,9 @@ export default function IntegracoesPage() {
                   </select>
                 </div>
               </div>
-              <div><label className="block text-xs text-gray-400 mb-1">API Key</label><input type="text" value={form.api_key} onChange={(e) => setForm({...form, api_key: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
-              <div><label className="block text-xs text-gray-400 mb-1">API Secret</label><input type="text" value={form.api_secret} onChange={(e) => setForm({...form, api_secret: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
-              <div><label className="block text-xs text-gray-400 mb-1">Access Token</label><input type="text" value={form.access_token} onChange={(e) => setForm({...form, access_token: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
+              <div><label className="block text-xs text-gray-400 mb-1">{form.provedor === 'c6bank' ? 'Client ID (API Key)' : 'API Key'}</label><input type="text" value={form.api_key} onChange={(e) => setForm({...form, api_key: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
+              <div><label className="block text-xs text-gray-400 mb-1">{form.provedor === 'c6bank' ? 'Client Secret (API Secret)' : 'API Secret'}</label><input type="text" value={form.api_secret} onChange={(e) => setForm({...form, api_secret: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
+              <div><label className="block text-xs text-gray-400 mb-1">{form.provedor === 'c6bank' ? 'Chave PIX (Access Token)' : 'Access Token'}</label><input type="text" value={form.access_token} onChange={(e) => setForm({...form, access_token: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
               <div><label className="block text-xs text-gray-400 mb-1">Webhook URL</label><input type="url" value={form.webhook_url} onChange={(e) => setForm({...form, webhook_url: e.target.value})} className="w-full px-3 py-2 text-sm" /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs text-gray-400 mb-1">Ambiente</label>

@@ -39,8 +39,9 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
--- 5. Tabela de Faturas do Cartão
-CREATE TABLE IF NOT EXISTS _financeiro_faturas_cartao (
+-- 5. Tabela de Faturas do Cartão (drop e recria para garantir schema correto)
+DROP TABLE IF EXISTS _financeiro_faturas_cartao CASCADE;
+CREATE TABLE _financeiro_faturas_cartao (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   cartao_credito_id UUID NOT NULL REFERENCES _financeiro_cartoes_credito(id) ON DELETE CASCADE,
   mes INTEGER NOT NULL,
