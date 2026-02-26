@@ -34,6 +34,7 @@ export default function IntegracoesPage() {
   const [form, setForm] = useState({
     nome: '', provedor: '', api_key: '', api_secret: '', access_token: '',
     webhook_url: '', ambiente: 'sandbox', franquia_id: '',
+    cert_pem: '', key_pem: '',
   })
 
   useEffect(() => {
@@ -63,14 +64,20 @@ export default function IntegracoesPage() {
 
     // Limpar campos vazios para null e adicionar defaults
     const payload: Record<string, unknown> = {
-      ...form,
+      nome: form.nome,
+      provedor: form.provedor,
+      ambiente: form.ambiente,
       franquia_id: form.franquia_id || null,
       api_key: form.api_key || null,
       api_secret: form.api_secret || null,
       access_token: form.access_token || null,
       webhook_url: form.webhook_url || null,
       ativa: true,
-      configuracoes_extra: {},
+      configuracoes_extra: form.provedor === 'c6bank' ? {
+        cert_pem: form.cert_pem || null,
+        key_pem: form.key_pem || null,
+        pix_key: form.access_token || null,
+      } : {},
     }
 
     try {
@@ -86,7 +93,7 @@ export default function IntegracoesPage() {
         return
       }
       setShowModal(false)
-      setForm({ nome: '', provedor: '', api_key: '', api_secret: '', access_token: '', webhook_url: '', ambiente: 'sandbox', franquia_id: '' })
+      setForm({ nome: '', provedor: '', api_key: '', api_secret: '', access_token: '', webhook_url: '', ambiente: 'sandbox', franquia_id: '', cert_pem: '', key_pem: '' })
       fetchIntegracoes()
     } catch {
       setFormError('Erro de conexão. Tente novamente.')
@@ -215,7 +222,8 @@ export default function IntegracoesPage() {
               )}
               {form.provedor === 'c6bank' && (
                 <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300">
-                  <strong>C6 Bank:</strong> API Key = Client ID | API Secret = Client Secret | Access Token = Chave PIX
+                  <strong>C6 Bank:</strong> API Key = Client ID | API Secret = Client Secret | Access Token = Chave PIX<br />
+                  <strong>mTLS obrigatório:</strong> Cole o conteúdo dos arquivos .crt e .key nos campos abaixo.
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
@@ -231,6 +239,18 @@ export default function IntegracoesPage() {
               <div><label className="block text-xs text-gray-400 mb-1">{form.provedor === 'c6bank' ? 'Client Secret (API Secret)' : 'API Secret'}</label><input type="text" value={form.api_secret} onChange={(e) => setForm({...form, api_secret: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
               <div><label className="block text-xs text-gray-400 mb-1">{form.provedor === 'c6bank' ? 'Chave PIX (Access Token)' : 'Access Token'}</label><input type="text" value={form.access_token} onChange={(e) => setForm({...form, access_token: e.target.value})} className="w-full px-3 py-2 text-sm font-mono" /></div>
               <div><label className="block text-xs text-gray-400 mb-1">Webhook URL</label><input type="url" value={form.webhook_url} onChange={(e) => setForm({...form, webhook_url: e.target.value})} className="w-full px-3 py-2 text-sm" /></div>
+              {form.provedor === 'c6bank' && (
+                <>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Certificado mTLS (.crt) — conteúdo PEM</label>
+                    <textarea value={form.cert_pem} onChange={(e) => setForm({...form, cert_pem: e.target.value})} className="w-full px-3 py-2 text-xs font-mono h-24 resize-y" placeholder={"-----BEGIN CERTIFICATE-----\n...conteúdo do arquivo .crt...\n-----END CERTIFICATE-----"} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Chave Privada mTLS (.key) — conteúdo PEM</label>
+                    <textarea value={form.key_pem} onChange={(e) => setForm({...form, key_pem: e.target.value})} className="w-full px-3 py-2 text-xs font-mono h-24 resize-y" placeholder={"-----BEGIN PRIVATE KEY-----\n...conteúdo do arquivo .key...\n-----END PRIVATE KEY-----"} />
+                  </div>
+                </>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs text-gray-400 mb-1">Ambiente</label>
                   <select value={form.ambiente} onChange={(e) => setForm({...form, ambiente: e.target.value})} className="w-full px-3 py-2 text-sm">

@@ -349,12 +349,30 @@ export default function C6BankPage() {
           <Building2 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-white mb-2">C6 Bank não configurado</h2>
           <p className="text-gray-400 text-sm mb-4">{connection?.message}</p>
-          <p className="text-gray-500 text-xs">
-            Vá em <strong>Integrações</strong>, clique no C6 Bank e configure:<br />
-            <code className="text-indigo-400">API Key</code> = Client ID &nbsp;|&nbsp;
-            <code className="text-indigo-400">API Secret</code> = Client Secret &nbsp;|&nbsp;
-            <code className="text-indigo-400">Access Token</code> = Chave PIX
-          </p>
+          {connection?.message?.includes('mTLS') || connection?.message?.includes('mtls') || connection?.message?.includes('403') ? (
+            <div className="text-left max-w-md mx-auto space-y-3">
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+                <strong>Erro mTLS:</strong> O C6 Bank exige certificado de cliente (mTLS) em todas as requisições, inclusive sandbox.
+              </div>
+              <p className="text-gray-400 text-xs">Para resolver:</p>
+              <ol className="text-gray-400 text-xs space-y-1 list-decimal list-inside">
+                <li>O C6 Bank deve ter enviado arquivos <code className="text-indigo-400">.crt</code> e <code className="text-indigo-400">.key</code></li>
+                <li>Abra os arquivos em um editor de texto</li>
+                <li>Vá em <strong>Integrações</strong> → C6 Bank</li>
+                <li>Cole o conteúdo do <code className="text-indigo-400">.crt</code> no campo &ldquo;Certificado mTLS&rdquo;</li>
+                <li>Cole o conteúdo do <code className="text-indigo-400">.key</code> no campo &ldquo;Chave Privada mTLS&rdquo;</li>
+                <li>Salve e volte aqui</li>
+              </ol>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-xs">
+              Vá em <strong>Integrações</strong>, clique no C6 Bank e configure:<br />
+              <code className="text-indigo-400">API Key</code> = Client ID &nbsp;|&nbsp;
+              <code className="text-indigo-400">API Secret</code> = Client Secret &nbsp;|&nbsp;
+              <code className="text-indigo-400">Access Token</code> = Chave PIX<br />
+              + Certificados mTLS (.crt e .key)
+            </p>
+          )}
         </div>
       )}
 

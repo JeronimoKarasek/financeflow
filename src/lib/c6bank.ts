@@ -1,7 +1,10 @@
 // ============================================================
 // C6 BANK - API Client
 // Integração completa: Auth, PIX, Boleto, Checkout, Extrato, DDA
+// Suporte mTLS (mutual TLS) obrigatório pelo C6
 // ============================================================
+
+import https from 'https'
 
 const C6_SANDBOX_URL = 'https://baas-api-sandbox.c6bank.info'
 const C6_PRODUCTION_URL = 'https://baas-api.c6bank.info'
@@ -18,6 +21,8 @@ interface C6Config {
   pixKey?: string
   ambiente: 'sandbox' | 'producao'
   webhookUrl?: string
+  certPem?: string
+  keyPem?: string
 }
 
 // ---- Cache de Token ----
@@ -25,6 +30,44 @@ let cachedToken: { token: string; expiresAt: number } | null = null
 
 function getBaseUrl(ambiente: 'sandbox' | 'producao') {
   return ambiente === 'producao' ? C6_PRODUCTION_URL : C6_SANDBOX_URL
+}
+
+// ---- HTTPS com mTLS ----
+function getCertAndKey(config: C6Config) {
+  const cert = config.certPem || process.env.C6_BANK_CERT
+  const key = config.keyPem || process.env.C6_BANK_KEY
+  return { cert: cert || undefined, key: key || undefined }
+}
+
+function httpsRequest(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body?: string,
+  cert?: string,
+  key?: string
+): Promise<{ status: number; data: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    const options: https.RequestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      method,
+      headers,
+      cert: cert || undefined,
+      key: key || undefined,
+      rejectUnauthorized: true,
+    }
+    const req = https.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => (data += chunk))
+      res.on('end', () => resolve({ status: res.statusCode || 500, data }))
+    })
+    req.on('error', reject)
+    if (body) req.write(body)
+    req.end()
+  })
 }
 
 // ---- AUTENTICAÇÃO ----
@@ -35,22 +78,25 @@ export async function c6Authenticate(config: C6Config): Promise<C6TokenResponse>
   }
 
   const baseUrl = getBaseUrl(config.ambiente)
-  const res = await fetch(`${baseUrl}/v1/auth`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-    }),
-  })
+  const url = `${baseUrl}/v1/auth`
+  const formBody = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+  }).toString()
+  const { cert, key } = getCertAndKey(config)
 
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`C6 Auth falhou (${res.status}): ${err}`)
+  const result = await httpsRequest(
+    url, 'POST',
+    { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': String(Buffer.byteLength(formBody)) },
+    formBody, cert, key
+  )
+
+  if (result.status >= 400) {
+    throw new Error(`C6 Auth falhou (${result.status}): ${result.data}`)
   }
 
-  const data: C6TokenResponse = await res.json()
+  const data: C6TokenResponse = JSON.parse(result.data)
   cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 }
   return data
 }
@@ -58,19 +104,21 @@ export async function c6Authenticate(config: C6Config): Promise<C6TokenResponse>
 async function c6Request(config: C6Config, method: string, path: string, body?: unknown) {
   const auth = await c6Authenticate(config)
   const baseUrl = getBaseUrl(config.ambiente)
+  const url = `${baseUrl}${path}`
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${auth.access_token}`,
     'Content-Type': 'application/json',
     'partner-software-name': 'FarolFinance',
     'partner-software-version': '1.0',
   }
-  const opts: RequestInit = { method, headers }
-  if (body && method !== 'GET') opts.body = JSON.stringify(body)
-  const res = await fetch(`${baseUrl}${path}`, opts)
-  const text = await res.text()
+  const bodyStr = body && method !== 'GET' ? JSON.stringify(body) : undefined
+  if (bodyStr) headers['Content-Length'] = String(Buffer.byteLength(bodyStr))
+  const { cert, key } = getCertAndKey(config)
+
+  const result = await httpsRequest(url, method, headers, bodyStr, cert, key)
   let json
-  try { json = JSON.parse(text) } catch { json = { raw: text } }
-  if (!res.ok) throw new Error(JSON.stringify({ status: res.status, ...json }))
+  try { json = JSON.parse(result.data) } catch { json = { raw: result.data } }
+  if (result.status >= 400) throw new Error(JSON.stringify({ status: result.status, ...json }))
   return json
 }
 
@@ -297,5 +345,7 @@ export function buildC6Config(integracao: {
     pixKey: (integracao.configuracoes_extra?.pix_key as string) || integracao.access_token || '',
     ambiente: integracao.ambiente === 'producao' ? 'producao' : 'sandbox',
     webhookUrl: integracao.webhook_url || '',
+    certPem: (integracao.configuracoes_extra?.cert_pem as string) || '',
+    keyPem: (integracao.configuracoes_extra?.key_pem as string) || '',
   }
 }
