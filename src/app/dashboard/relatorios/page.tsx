@@ -46,18 +46,23 @@ export default function RelatoriosPage() {
       const endDate = new Date(periodo.ano, periodo.mes, 0).toISOString().split('T')[0]
 
       const params = new URLSearchParams({ data_inicio: startDate, data_fim: endDate, limit: '10000' })
-      if (franquiaId) params.set('franquia_id', franquiaId)
+      if (franquiaId && franquiaId !== 'sem_franquia') params.set('franquia_id', franquiaId)
 
       const res = await fetch(`/api/transacoes?${params}`)
       const result = await res.json()
-      const transacoes: Transacao[] = (result.data || []).map((t: Transacao) => ({
+      let transacoes: Transacao[] = (result.data || []).map((t: Transacao & { franquia_id?: string | null }) => ({
         ...t,
         categoria_nome: t._financeiro_categorias?.nome || 'Sem categoria',
         franquia_nome: t._financeiro_franquias?.nome || null,
       }))
 
-      const receitas = transacoes.filter(t => t.tipo === 'receita' && t.status === 'pago')
-      const despesas = transacoes.filter(t => t.tipo === 'despesa' && t.status === 'pago')
+      // Filtrar transações sem franquia se selecionado
+      if (franquiaId === 'sem_franquia') {
+        transacoes = transacoes.filter(t => !t.franquia_nome)
+      }
+
+      const receitas = transacoes.filter(t => t.tipo === 'receita' && t.status !== 'cancelado')
+      const despesas = transacoes.filter(t => t.tipo === 'despesa' && t.status !== 'cancelado')
       const totalReceitas = receitas.reduce((s, t) => s + Number(t.valor), 0)
       const totalDespesas = despesas.reduce((s, t) => s + Number(t.valor), 0)
       const resultadoLiq = totalReceitas - totalDespesas
@@ -98,20 +103,22 @@ export default function RelatoriosPage() {
           .sort((a, b) => b.valor - a.valor))
       }
 
-      // Franquias comparativo
-      if (franquias.length > 0) {
+      // Franquias comparativo (inclui "Sem Franquia")
+      {
         const franqMap = new Map<string, { receitas: number; despesas: number }>()
         franquias.forEach(f => franqMap.set(f.nome, { receitas: 0, despesas: 0 }))
+        franqMap.set('Sem Franquia', { receitas: 0, despesas: 0 })
         transacoes.forEach(t => {
-          if (t.status !== 'pago' || !t.franquia_nome) return
-          const entry = franqMap.get(t.franquia_nome)
-          if (!entry) return
+          if (t.status === 'cancelado') return
+          const key = t.franquia_nome || 'Sem Franquia'
+          if (!franqMap.has(key)) franqMap.set(key, { receitas: 0, despesas: 0 })
+          const entry = franqMap.get(key)!
           if (t.tipo === 'receita') entry.receitas += Number(t.valor)
           else entry.despesas += Number(t.valor)
         })
         setFranquiasData(Array.from(franqMap.entries()).map(([nome, v]) => ({
           nome, receitas: v.receitas, despesas: v.despesas, saldo: v.receitas - v.despesas,
-        })))
+        })).filter(f => f.receitas > 0 || f.despesas > 0))
       }
     } catch (err) {
       console.error('Erro ao carregar relatório:', err)
@@ -150,6 +157,7 @@ export default function RelatoriosPage() {
       <div className="flex flex-wrap gap-3 items-center">
         <select value={franquiaId} onChange={(e) => setFranquiaId(e.target.value)} className="px-3 py-2 text-sm">
           <option value="">Todas Franquias</option>
+          <option value="sem_franquia">Sem Franquia</option>
           {franquias.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
         </select>
         <select value={periodo.mes} onChange={(e) => setPeriodo({...periodo, mes: parseInt(e.target.value)})} className="px-3 py-2 text-sm">
