@@ -181,6 +181,44 @@ export async function DELETE(request: Request) {
   }
 }
 
+// Parser inteligente de valores monetários (suporta BR e US)
+function parseValorBR(raw: string): number {
+  let s = raw.replace(/[R$\s]/g, '').trim()
+  if (!s) return NaN
+
+  const lastComma = s.lastIndexOf(',')
+  const lastDot = s.lastIndexOf('.')
+
+  if (lastComma > -1 && lastDot > -1) {
+    // Ambos existem: o ÚLTIMO é o separador decimal
+    if (lastComma > lastDot) {
+      // BR: 1.234,56
+      s = s.replace(/\./g, '').replace(',', '.')
+    } else {
+      // US: 1,234.56
+      s = s.replace(/,/g, '')
+    }
+  } else if (lastComma > -1) {
+    // Só vírgula: se tem 1-2 dígitos depois, é decimal
+    const afterComma = s.substring(lastComma + 1)
+    if (afterComma.length <= 2) {
+      s = s.replace(',', '.')
+    } else {
+      s = s.replace(/,/g, '')
+    }
+  } else if (lastDot > -1) {
+    // Só ponto: se tem 1-2 dígitos depois, é decimal; senão milhar
+    const afterDot = s.substring(lastDot + 1)
+    if (afterDot.length <= 2) {
+      // Mantém como está (decimal com ponto)
+    } else {
+      s = s.replace(/\./g, '')
+    }
+  }
+
+  return parseFloat(s)
+}
+
 function parseCSV(text: string): ImportedRow[] {
   const lines = text.trim().split('\n')
   if (lines.length < 2) return []
@@ -215,9 +253,8 @@ function parseCSV(text: string): ImportedRow[] {
     const cols = line.split(separator).map(c => c.trim().replace(/^["']|["']$/g, ''))
     if (cols.length < 3) continue
 
-    const rawValor = cols[vI]?.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')
-    const valor = parseFloat(rawValor)
-    if (isNaN(valor)) continue
+    const valor = parseValorBR(cols[vI] || '')
+    if (isNaN(valor) || valor === 0) continue
 
     let tipo: 'receita' | 'despesa' = valor >= 0 ? 'receita' : 'despesa'
 
@@ -461,24 +498,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Se importou para cartão de crédito, atualizar limite usado (soma de todas as despesas, incluindo parcelas)
+    // Se importou para cartão de crédito, recalcular limite usado a partir das transações pendentes
     if (targetType === 'cartao') {
-      const totalGastosCartao = transacoes
-        .filter(t => t.tipo === 'despesa')
-        .reduce((s, t) => s + Number(t.valor), 0)
+      const { data: pendentesCartao } = await supabase
+        .from('_financeiro_transacoes')
+        .select('valor')
+        .eq('cartao_credito_id', targetId)
+        .eq('tipo', 'despesa')
+        .in('status', ['pendente', 'atrasado'])
 
-      const { data: cartao } = await supabase
+      const limiteUsadoReal = pendentesCartao?.reduce((s, t) => s + Number(t.valor), 0) || 0
+
+      await supabase
         .from('_financeiro_cartoes_credito')
-        .select('limite_usado')
+        .update({ limite_usado: limiteUsadoReal })
         .eq('id', targetId)
-        .single()
-
-      if (cartao) {
-        await supabase
-          .from('_financeiro_cartoes_credito')
-          .update({ limite_usado: Number(cartao.limite_usado) + totalGastosCartao })
-          .eq('id', targetId)
-      }
     }
 
     const totalFixas = transacoes.filter(t => t.recorrente === true).length

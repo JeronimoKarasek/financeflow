@@ -14,13 +14,35 @@ export async function GET() {
 
     if (error) {
       console.error('Cartões GET Supabase error:', error)
-      // Se a tabela não existe, retornar array vazio com aviso
       if (error.code === '42P01' || error.message?.includes('does not exist')) {
         return NextResponse.json([])
       }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
-    return NextResponse.json(data || [])
+
+    // Recalcular limite_usado dinamicamente a partir de transações pendentes/atrasadas
+    const cartoes = data || []
+    for (const cartao of cartoes) {
+      const { data: pendentes } = await supabase
+        .from('_financeiro_transacoes')
+        .select('valor')
+        .eq('cartao_credito_id', cartao.id)
+        .eq('tipo', 'despesa')
+        .in('status', ['pendente', 'atrasado'])
+
+      const limiteReal = pendentes?.reduce((s: number, t: { valor: number }) => s + Number(t.valor), 0) || 0
+      cartao.limite_usado = limiteReal
+
+      // Atualizar no banco se divergir
+      if (Math.abs(limiteReal - Number(cartao.limite_usado)) > 0.01) {
+        await supabase
+          .from('_financeiro_cartoes_credito')
+          .update({ limite_usado: limiteReal })
+          .eq('id', cartao.id)
+      }
+    }
+
+    return NextResponse.json(cartoes)
   } catch (error) {
     console.error('Cartões GET error:', error)
     return NextResponse.json([], { status: 200 })

@@ -110,13 +110,13 @@ export async function GET(request: Request) {
       .eq('tipo', 'despesa')
 
     const categoriasDespesas = await Promise.all(
-      (categorias || []).slice(0, 5).map(async (cat) => {
+      (categorias || []).slice(0, 8).map(async (cat) => {
         const { data: transC } = await supabase
           .from('_financeiro_transacoes')
           .select('valor')
           .eq('categoria_id', cat.id)
           .eq('tipo', 'despesa')
-          .eq('status', 'pago')
+          .neq('status', 'cancelado')
           .gte('data_vencimento', dataInicioStr)
 
         return {
