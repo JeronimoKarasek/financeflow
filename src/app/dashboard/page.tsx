@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { 
   TrendingUp, TrendingDown, DollarSign, Clock, AlertTriangle, 
   ArrowUpRight, ArrowDownRight, Building2, Wallet, Calendar,
-  BarChart3
+  BarChart3, X, ChevronRight
 } from 'lucide-react'
 import { formatCurrency, getStatusColor } from '@/lib/utils'
 import {
@@ -26,12 +26,17 @@ interface DashboardData {
   proximasCobrancas: { id: string; descricao: string; valor: number; vencimento: string; status: string }[]
 }
 
+interface DrillTransacao { id: string; descricao: string; valor: number; tipo: string; status: string; data_vencimento: string; categoria_nome?: string; franquia_nome?: string }
+interface DrillState { type: 'categoria' | 'franquia'; nome: string; cor?: string; transacoes: DrillTransacao[] }
+
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6']
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [periodo, setPeriodo] = useState<'mes' | 'trimestre' | 'ano'>('mes')
+  const [drill, setDrill] = useState<DrillState | null>(null)
+  const [drillLoading, setDrillLoading] = useState(false)
 
   useEffect(() => {
     fetchDashboard()
@@ -60,6 +65,48 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleDrillCategoria = async (catNome: string, catCor?: string) => {
+    setDrillLoading(true)
+    try {
+      const params = new URLSearchParams({ tipo: 'despesa', limit: '500' })
+      const res = await fetch(`/api/transacoes?${params}`)
+      const result = await res.json()
+      const trans = (result.data || []).filter((t: DrillTransacao & { _financeiro_categorias?: { nome: string } }) => {
+        const nome = t._financeiro_categorias?.nome || 'Sem categoria'
+        return nome === catNome && t.status !== 'cancelado'
+      }).map((t: DrillTransacao & { _financeiro_categorias?: { nome: string }; _financeiro_franquias?: { nome: string } }) => ({
+        ...t,
+        categoria_nome: t._financeiro_categorias?.nome || 'Sem categoria',
+        franquia_nome: t._financeiro_franquias?.nome || null,
+      }))
+      setDrill({ type: 'categoria', nome: catNome, cor: catCor, transacoes: trans })
+    } catch { /* ignore */ }
+    setDrillLoading(false)
+  }
+
+  const handleDrillFranquia = async (franqNome: string, franqCor?: string) => {
+    setDrillLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: '500' })
+      if (franqNome === 'Sem Franquia') {
+        params.set('franquia_id', 'sem_franquia')
+      }
+      const res = await fetch(`/api/transacoes?${params}`)
+      const result = await res.json()
+      const trans = (result.data || []).filter((t: DrillTransacao & { _financeiro_franquias?: { nome: string } }) => {
+        const nome = t._financeiro_franquias?.nome || null
+        if (franqNome === 'Sem Franquia') return !nome && t.status !== 'cancelado'
+        return nome === franqNome && t.status !== 'cancelado'
+      }).map((t: DrillTransacao & { _financeiro_categorias?: { nome: string }; _financeiro_franquias?: { nome: string } }) => ({
+        ...t,
+        categoria_nome: t._financeiro_categorias?.nome || 'Sem categoria',
+        franquia_nome: t._financeiro_franquias?.nome || null,
+      }))
+      setDrill({ type: 'franquia', nome: franqNome, cor: franqCor, transacoes: trans })
+    } catch { /* ignore */ }
+    setDrillLoading(false)
   }
 
   if (loading) {
@@ -192,10 +239,11 @@ export default function DashboardPage() {
 
         {/* Pie Chart - Categorias */}
         <div className="glass-card p-6">
-          <h3 className="text-sm font-semibold text-gray-200 mb-6 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-200 mb-1 flex items-center gap-2">
             <Wallet className="w-4 h-4 text-indigo-400" />
             Despesas por Categoria
           </h3>
+          <p className="text-[10px] text-gray-600 mb-4">Clique para detalhar</p>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie
@@ -206,6 +254,11 @@ export default function DashboardPage() {
                 outerRadius={80}
                 paddingAngle={4}
                 dataKey="valor"
+                onClick={(_, idx) => {
+                  const cat = data.categoriasDespesas[idx]
+                  if (cat) handleDrillCategoria(cat.nome, cat.cor)
+                }}
+                style={{ cursor: 'pointer' }}
               >
                 {data.categoriasDespesas.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.cor || COLORS[index % COLORS.length]} />
@@ -224,12 +277,17 @@ export default function DashboardPage() {
           </ResponsiveContainer>
           <div className="space-y-2 mt-4">
             {data.categoriasDespesas.map((cat, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
+              <div key={i}
+                onClick={() => handleDrillCategoria(cat.nome, cat.cor)}
+                className="flex items-center justify-between text-xs cursor-pointer hover:bg-[#1c1c28] rounded-lg px-2 py-1.5 transition-colors group">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.cor }} />
-                  <span className="text-gray-400">{cat.nome}</span>
+                  <span className="text-gray-400 group-hover:text-white transition-colors">{cat.nome}</span>
                 </div>
-                <span className="text-gray-300 font-medium">{formatCurrency(cat.valor)}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-300 font-medium">{formatCurrency(cat.valor)}</span>
+                  <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-indigo-400 transition-colors" />
+                </div>
               </div>
             ))}
           </div>
@@ -240,18 +298,24 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Franquias */}
         <div className="glass-card p-6">
-          <h3 className="text-sm font-semibold text-gray-200 mb-4 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-200 mb-1 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-indigo-400" />
             Saldo por Franquia
           </h3>
+          <p className="text-[10px] text-gray-600 mb-3">Clique para detalhar</p>
           <div className="space-y-3">
             {data.franquias.map((f, i) => {
               const maxSaldo = Math.max(...data.franquias.map(fr => Math.abs(fr.saldo)))
               const width = maxSaldo > 0 ? (Math.abs(f.saldo) / maxSaldo) * 100 : 0
               return (
-                <div key={i} className="group">
+                <div key={i}
+                  onClick={() => handleDrillFranquia(f.nome, f.cor)}
+                  className="group cursor-pointer hover:bg-[#1c1c28] rounded-lg p-2 -mx-2 transition-colors">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-gray-300 group-hover:text-white transition-colors">{f.nome}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-300 group-hover:text-white transition-colors">{f.nome}</span>
+                      <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-indigo-400 transition-colors" />
+                    </div>
                     <span className={`text-sm font-semibold ${f.saldo >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {formatCurrency(f.saldo)}
                     </span>
@@ -301,6 +365,94 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal Drill-Down */}
+      {(drill || drillLoading) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setDrill(null); setDrillLoading(false) }} />
+          <div className="relative w-full max-w-4xl glass-card max-h-[85vh] flex flex-col">
+            {drillLoading && !drill ? (
+              <div className="p-12 flex items-center justify-center">
+                <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : drill ? (
+              <>
+                <div className="flex items-center justify-between p-6 border-b border-[#2a2a3a]">
+                  <div className="flex items-center gap-3">
+                    {drill.cor && <div className="w-4 h-4 rounded-full" style={{ backgroundColor: drill.cor }} />}
+                    {drill.type === 'franquia' && !drill.cor && <Building2 className="w-5 h-5 text-indigo-400" />}
+                    <div>
+                      <h2 className="text-lg font-bold text-white">{drill.nome}</h2>
+                      <p className="text-xs text-gray-500">{drill.transacoes.length} transações • {drill.type === 'categoria' ? 'Categoria' : 'Franquia'}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setDrill(null)} className="p-2 rounded-lg hover:bg-[#2a2a3a] text-gray-400 hover:text-white transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                {/* Resumo */}
+                <div className="grid grid-cols-3 gap-3 px-6 py-4">
+                  <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                    <p className="text-[10px] text-gray-500 uppercase">Receitas</p>
+                    <p className="text-sm font-bold text-emerald-400">{formatCurrency(drill.transacoes.filter(t => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0))}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/10">
+                    <p className="text-[10px] text-gray-500 uppercase">Despesas</p>
+                    <p className="text-sm font-bold text-red-400">{formatCurrency(drill.transacoes.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0))}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-indigo-500/5 border border-indigo-500/10">
+                    <p className="text-[10px] text-gray-500 uppercase">Saldo</p>
+                    {(() => {
+                      const r = drill.transacoes.filter(t => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0)
+                      const d = drill.transacoes.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0)
+                      return <p className={`text-sm font-bold ${r - d >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(r - d)}</p>
+                    })()}
+                  </div>
+                </div>
+                {/* Lista de Transações */}
+                <div className="flex-1 overflow-y-auto px-6 pb-6">
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] uppercase tracking-wider text-gray-600 font-medium sticky top-0 bg-[#16161f]">
+                      <span className="col-span-1">Tipo</span>
+                      <span className="col-span-4">Descrição</span>
+                      <span className="col-span-2 text-right">Valor</span>
+                      <span className="col-span-2 text-center">Vencimento</span>
+                      <span className="col-span-2 text-center">Status</span>
+                      <span className="col-span-1 text-center">{drill.type === 'categoria' ? 'Franq.' : 'Cat.'}</span>
+                    </div>
+                    {drill.transacoes.map((t, i) => (
+                      <div key={t.id || i} className="grid grid-cols-12 gap-2 items-center px-3 py-2.5 rounded-lg hover:bg-[#1c1c28] transition-colors text-sm border border-transparent hover:border-[#2a2a3a]">
+                        <span className="col-span-1">
+                          <span className={`inline-block w-2 h-2 rounded-full ${t.tipo === 'receita' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                        </span>
+                        <span className="col-span-4 text-gray-300 truncate">{t.descricao || 'Sem descrição'}</span>
+                        <span className={`col-span-2 text-right font-medium ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatCurrency(Number(t.valor))}
+                        </span>
+                        <span className="col-span-2 text-center text-gray-500 text-xs">{t.data_vencimento ? new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</span>
+                        <span className="col-span-2 text-center">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                            t.status === 'pago' ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' :
+                            t.status === 'pendente' ? 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' :
+                            t.status === 'atrasado' ? 'text-red-400 border-red-500/30 bg-red-500/10' :
+                            'text-gray-400 border-gray-500/30 bg-gray-500/10'
+                          }`}>{t.status}</span>
+                        </span>
+                        <span className="col-span-1 text-center text-gray-500 text-xs truncate">
+                          {drill.type === 'categoria' ? (t.franquia_nome || '-') : (t.categoria_nome || '-')}
+                        </span>
+                      </div>
+                    ))}
+                    {drill.transacoes.length === 0 && (
+                      <p className="text-center text-gray-500 py-8 text-sm">Nenhuma transação encontrada</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
