@@ -42,7 +42,7 @@ export default function TransacoesPage() {
       const params = new URLSearchParams()
       if (filtros.tipo) params.set('tipo', filtros.tipo)
       if (filtros.status) params.set('status', filtros.status)
-      if (filtros.franquia_id) params.set('franquia_id', filtros.franquia_id)
+      if (filtros.franquia_id) params.set('franquia_id', filtros.franquia_id) // inclui 'sem_franquia'
       const res = await fetch(`/api/transacoes?${params}`)
       const result = await res.json()
       setTransacoes(result.data || [])
@@ -269,6 +269,7 @@ export default function TransacoesPage() {
         </select>
         <select value={filtros.franquia_id} onChange={(e) => setFiltros({...filtros, franquia_id: e.target.value})} className="px-3 py-2 text-sm min-w-[150px]">
           <option value="">Todas Franquias</option>
+          <option value="sem_franquia">Sem Franquia</option>
           {franquias.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
         </select>
       </div>

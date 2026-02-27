@@ -24,7 +24,8 @@ export async function GET(request: Request) {
 
     if (tipo) query = query.eq('tipo', tipo)
     if (status) query = query.eq('status', status)
-    if (franquiaId) query = query.eq('franquia_id', franquiaId)
+    if (franquiaId === 'sem_franquia') query = query.is('franquia_id', null)
+    else if (franquiaId) query = query.eq('franquia_id', franquiaId)
     if (isPessoal === 'true') query = query.eq('is_pessoal', true)
     if (isPessoal === 'false') query = query.eq('is_pessoal', false)
     if (dataInicio) query = query.gte('data_vencimento', dataInicio)
