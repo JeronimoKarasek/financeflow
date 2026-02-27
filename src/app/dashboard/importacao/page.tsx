@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, FileText, CheckCircle2, AlertCircle, ArrowUpRight, ArrowDownRight, CreditCard, Building2, X, FileSpreadsheet, Download, Trash2, Clock, History } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, AlertCircle, ArrowUpRight, ArrowDownRight, CreditCard, Building2, X, FileSpreadsheet, Download, Trash2, Clock, History, Repeat, Layers } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
 interface ContaBancaria {
@@ -32,6 +32,8 @@ interface ImportResult {
     despesas: number
     valor_receitas: number
     valor_despesas: number
+    parcelas_geradas?: number
+    transacoes_fixas?: number
   }
 }
 
@@ -192,12 +194,12 @@ export default function ImportacaoPage() {
 
   const downloadTemplate = () => {
     const franquiaNomes = franquias.map(f => f.nome).join(' | ')
-    const header = 'Data;Descricao;Valor;Tipo;Franquia'
-    const exemplo1 = `${new Date().toLocaleDateString('pt-BR')};Pagamento fornecedor XYZ;-1500.00;despesa;${franquias[0]?.nome || 'Empresa A'}`
-    const exemplo2 = `${new Date().toLocaleDateString('pt-BR')};Recebimento cliente ABC;3200.00;receita;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa A'}`
-    const exemplo3 = `${new Date().toLocaleDateString('pt-BR')};Aluguel escritório;-2800.00;despesa;${franquias[0]?.nome || 'Empresa A'}`
-    const exemplo4 = `${new Date().toLocaleDateString('pt-BR')};Venda produto Y;890.50;receita;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'}`
-    const comentario = `\n# INSTRUÇÕES:\n# - Separador: ponto-e-vírgula (;)\n# - Coluna "Data": formato dd/mm/aaaa ou aaaa-mm-dd\n# - Coluna "Valor": use ponto como decimal. Negativo = despesa\n# - Coluna "Tipo": receita ou despesa (se omitido, define pelo sinal do valor)\n# - Coluna "Franquia": nome EXATO da empresa/franquia cadastrada\n# - Franquias cadastradas: ${franquiaNomes || '(nenhuma cadastrada)'}\n# - Remova estas linhas de comentário antes de importar`
+    const header = 'Data;Descricao;Valor;Tipo;Franquia;Parcela;Fixo'
+    const exemplo1 = `${new Date().toLocaleDateString('pt-BR')};Compra Magazine Luiza;-500.00;despesa;${franquias[0]?.nome || 'Empresa A'};2/10;nao`
+    const exemplo2 = `${new Date().toLocaleDateString('pt-BR')};Netflix Assinatura;-45.90;despesa;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa A'};;sim`
+    const exemplo3 = `${new Date().toLocaleDateString('pt-BR')};Aluguel escritorio;-2800.00;despesa;${franquias[0]?.nome || 'Empresa A'};;sim`
+    const exemplo4 = `${new Date().toLocaleDateString('pt-BR')};Celular Samsung;-299.90;despesa;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'};1/12;nao`
+    const comentario = `\n# INSTRUCOES:\n# - Separador: ponto-e-virgula (;)\n# - Coluna "Data": formato dd/mm/aaaa ou aaaa-mm-dd\n# - Coluna "Valor": use ponto como decimal. Negativo = despesa\n# - Coluna "Tipo": receita ou despesa (se omitido, define pelo sinal do valor)\n# - Coluna "Franquia": nome EXATO da empresa/franquia cadastrada\n# - Coluna "Parcela": formato X/Y (ex: 2/10 = parcela 2 de 10). Gera parcelas restantes automaticamente\n# - Coluna "Fixo": sim ou nao. Se sim, marca como despesa fixa mensal (recorrente)\n# - Franquias cadastradas: ${franquiaNomes || '(nenhuma cadastrada)'}\n# - Para cartao: vencimento calculado automaticamente pelo dia de fechamento\n# - Remova estas linhas de comentario antes de importar`
 
     const csv = `${header}\n${exemplo1}\n${exemplo2}\n${exemplo3}\n${exemplo4}\n${comentario}`
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
@@ -319,7 +321,7 @@ export default function ImportacaoPage() {
                 <FileSpreadsheet className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-medium text-gray-200">CSV</p>
-                  <p className="text-[10px] text-gray-500">Data; Descrição; Valor; Tipo; Franquia</p>
+                  <p className="text-[10px] text-gray-500">Data; Descrição; Valor; Tipo; Franquia; Parcela; Fixo</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
@@ -372,6 +374,24 @@ export default function ImportacaoPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Info de parcelas e fixas */}
+              {(result.resumo.parcelas_geradas || result.resumo.transacoes_fixas) ? (
+                <div className="flex gap-3 mt-3">
+                  {result.resumo.parcelas_geradas ? (
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <Layers className="w-3.5 h-3.5 text-purple-400" />
+                      <span className="text-xs text-purple-300">{result.resumo.parcelas_geradas} parcelas futuras geradas</span>
+                    </div>
+                  ) : null}
+                  {result.resumo.transacoes_fixas ? (
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                      <Repeat className="w-3.5 h-3.5 text-cyan-400" />
+                      <span className="text-xs text-cyan-300">{result.resumo.transacoes_fixas} transações fixas mensais</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -472,29 +492,37 @@ export default function ImportacaoPage() {
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Valor</th>
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Tipo</th>
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Franquia</th>
+                    <th className="text-left px-3 py-2 text-purple-400 font-semibold">Parcela</th>
+                    <th className="text-left px-3 py-2 text-cyan-400 font-semibold">Fixo</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr className="border-b border-[#1c1c28]">
                     <td className="px-3 py-2 text-gray-300">26/02/2026</td>
-                    <td className="px-3 py-2 text-gray-300">Pagamento fornecedor XYZ</td>
-                    <td className="px-3 py-2 text-red-400">-1500.00</td>
+                    <td className="px-3 py-2 text-gray-300">Compra Magazine Luiza</td>
+                    <td className="px-3 py-2 text-red-400">-500.00</td>
                     <td className="px-3 py-2 text-gray-400">despesa</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[0]?.nome || 'Empresa A'}</td>
+                    <td className="px-3 py-2 text-purple-400">2/10</td>
+                    <td className="px-3 py-2 text-gray-500">nao</td>
                   </tr>
                   <tr className="border-b border-[#1c1c28]">
                     <td className="px-3 py-2 text-gray-300">26/02/2026</td>
-                    <td className="px-3 py-2 text-gray-300">Recebimento cliente ABC</td>
-                    <td className="px-3 py-2 text-emerald-400">3200.00</td>
-                    <td className="px-3 py-2 text-gray-400">receita</td>
+                    <td className="px-3 py-2 text-gray-300">Netflix Assinatura</td>
+                    <td className="px-3 py-2 text-red-400">-45.90</td>
+                    <td className="px-3 py-2 text-gray-400">despesa</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'}</td>
+                    <td className="px-3 py-2 text-gray-600">-</td>
+                    <td className="px-3 py-2 text-cyan-400">sim</td>
                   </tr>
                   <tr className="border-b border-[#1c1c28]">
                     <td className="px-3 py-2 text-gray-300">25/02/2026</td>
-                    <td className="px-3 py-2 text-gray-300">Aluguel escritório</td>
-                    <td className="px-3 py-2 text-red-400">-2800.00</td>
+                    <td className="px-3 py-2 text-gray-300">Celular Samsung</td>
+                    <td className="px-3 py-2 text-red-400">-299.90</td>
                     <td className="px-3 py-2 text-gray-400">despesa</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[0]?.nome || 'Empresa A'}</td>
+                    <td className="px-3 py-2 text-purple-400">1/12</td>
+                    <td className="px-3 py-2 text-gray-500">nao</td>
                   </tr>
                 </tbody>
               </table>
@@ -528,6 +556,14 @@ export default function ImportacaoPage() {
                 <div className="p-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
                   <p className="text-xs font-medium text-amber-400 mb-1">Coluna: Franquia <span className="text-gray-600">(opcional)</span></p>
                   <p className="text-[11px] text-gray-400">Nome <strong>exato</strong> da empresa/franquia cadastrada. Associa automaticamente cada transação à empresa.</p>
+                </div>
+                <div className="p-3 rounded-lg bg-[#16161f] border border-purple-500/20">
+                  <p className="text-xs font-medium text-purple-400 mb-1">Coluna: Parcela <span className="text-gray-600">(opcional)</span></p>
+                  <p className="text-[11px] text-gray-400">Formato <code className="text-gray-300">X/Y</code> (ex: <code className="text-gray-300">2/10</code> = parcela 2 de 10). Ao importar para cartão, gera todas as parcelas restantes com vencimento automático baseado na data de fechamento do cartão.</p>
+                </div>
+                <div className="p-3 rounded-lg bg-[#16161f] border border-cyan-500/20">
+                  <p className="text-xs font-medium text-cyan-400 mb-1">Coluna: Fixo <span className="text-gray-600">(opcional)</span></p>
+                  <p className="text-[11px] text-gray-400"><code className="text-gray-300">sim</code> ou <code className="text-gray-300">nao</code>. Marca a transação como despesa fixa mensal (recorrente). Ideal para assinaturas, aluguel, etc.</p>
                 </div>
                 <div className="p-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
                   <p className="text-xs font-medium text-gray-400 mb-1">Separador</p>

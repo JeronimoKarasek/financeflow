@@ -10,6 +10,49 @@ interface ImportedRow {
   tipo?: 'receita' | 'despesa'
   categoria?: string
   franquia?: string
+  parcela?: string   // formato "2/10"
+  fixo?: boolean     // transação fixa mensal
+}
+
+// Calcula a data de vencimento da fatura do cartão para uma compra
+function calcularVencimentoFatura(dataCompra: string, diaFechamento: number, diaVencimento: number): string {
+  const compra = new Date(dataCompra + 'T12:00:00')
+  const diaCompra = compra.getDate()
+  let mesFechamento = compra.getMonth()
+  let anoFechamento = compra.getFullYear()
+
+  // Se a compra foi depois do dia de fechamento, vai para o ciclo do mês seguinte
+  if (diaCompra > diaFechamento) {
+    mesFechamento++
+    if (mesFechamento > 11) { mesFechamento = 0; anoFechamento++ }
+  }
+
+  // O vencimento depende se dia_vencimento vem antes ou depois do fechamento
+  let mesVenc = mesFechamento
+  let anoVenc = anoFechamento
+
+  if (diaVencimento <= diaFechamento) {
+    // Vencimento no mês seguinte ao fechamento (ex: fecha dia 25, vence dia 10)
+    mesVenc++
+    if (mesVenc > 11) { mesVenc = 0; anoVenc++ }
+  }
+
+  const maxDia = new Date(anoVenc, mesVenc + 1, 0).getDate()
+  const dia = Math.min(diaVencimento, maxDia)
+
+  return `${anoVenc}-${String(mesVenc + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+}
+
+// Adiciona N meses a uma data no formato YYYY-MM-DD
+function adicionarMeses(dataStr: string, meses: number): string {
+  const d = new Date(dataStr + 'T12:00:00')
+  const dia = d.getDate()
+  d.setMonth(d.getMonth() + meses)
+  // Corrigir overflow de dia (ex: 31 jan + 1 mês = 28 fev)
+  if (d.getDate() !== dia) {
+    d.setDate(0) // último dia do mês anterior
+  }
+  return d.toISOString().split('T')[0]
 }
 
 // ============ GET: Histórico de importações ============
@@ -153,6 +196,8 @@ function parseCSV(text: string): ImportedRow[] {
   const valorIdx = headers.findIndex(h => ['valor', 'value', 'amount', 'quantia', 'montante', 'vlr'].includes(h))
   const tipoIdx = headers.findIndex(h => ['tipo', 'type', 'natureza', 'credito_debito', 'crédito_débito', 'cd'].includes(h))
   const franquiaIdx = headers.findIndex(h => ['franquia', 'empresa', 'company', 'unidade', 'filial', 'loja'].includes(h))
+  const parcelaIdx = headers.findIndex(h => ['parcela', 'parcelas', 'installment', 'installments', 'parc'].includes(h))
+  const fixoIdx = headers.findIndex(h => ['fixo', 'fixo/recorrente', 'recorrente', 'fixed', 'recurring', 'mensal'].includes(h))
 
   // Se não encontrou colunas essenciais, tentar fallback posicional (data, desc, valor)
   const dI = dataIdx >= 0 ? dataIdx : 0
@@ -192,12 +237,28 @@ function parseCSV(text: string): ImportedRow[] {
       data = new Date().toISOString().split('T')[0]
     }
 
+    // Detectar parcela (formato "2/10" ou "02/10")
+    let parcela = ''
+    if (parcelaIdx >= 0) {
+      const p = cols[parcelaIdx]?.trim() || ''
+      if (/^\d+\/\d+$/.test(p)) parcela = p
+    }
+
+    // Detectar fixo
+    let fixo = false
+    if (fixoIdx >= 0) {
+      const f = cols[fixoIdx]?.trim().toLowerCase() || ''
+      fixo = ['sim', 'yes', 's', 'y', '1', 'true', 'x'].includes(f)
+    }
+
     rows.push({
       data,
       descricao: cols[dsI] || `Transação ${i}`,
       valor: Math.abs(valor),
       tipo,
       franquia: franquiaIdx >= 0 ? cols[franquiaIdx]?.trim() || '' : '',
+      parcela,
+      fixo,
     })
   }
 
@@ -277,22 +338,79 @@ export async function POST(request: Request) {
       franquiaMap[f.nome.toLowerCase().trim()] = f.id
     }
 
-    // Preparar transações para inserção
-    const transacoes = parsed.map(row => ({
-      tipo: row.tipo || 'despesa',
-      descricao: row.descricao,
-      valor: row.valor,
-      data_vencimento: row.data,
-      data_pagamento: row.data,
-      status: 'pago' as const,
-      conta_bancaria_id: targetType === 'conta' ? targetId : null,
-      cartao_credito_id: targetType === 'cartao' ? targetId : null,
-      franquia_id: row.franquia ? (franquiaMap[row.franquia.toLowerCase().trim()] || null) : null,
-      is_pessoal: false,
-      usuario_id: usuarioId || null,
-      origem_integracao: 'importacao',
-      observacoes: `Importado de: ${file.name}`,
-    }))
+    // Buscar dados do cartão se for importação para cartão (para calcular vencimentos)
+    let cartaoData: { dia_fechamento: number; dia_vencimento: number } | null = null
+    if (targetType === 'cartao') {
+      const { data: cartaoInfo } = await supabase
+        .from('_financeiro_cartoes_credito')
+        .select('dia_fechamento, dia_vencimento')
+        .eq('id', targetId)
+        .single()
+      cartaoData = cartaoInfo || { dia_fechamento: 1, dia_vencimento: 10 }
+    }
+
+    // Preparar transações para inserção (incluindo parcelas geradas)
+    const transacoes: Record<string, unknown>[] = []
+    let parcelasGeradas = 0
+
+    for (const row of parsed) {
+      const franquiaId = row.franquia ? (franquiaMap[row.franquia.toLowerCase().trim()] || null) : null
+      const isCartao = targetType === 'cartao'
+
+      // Calcular data de vencimento base
+      let dataVencimento = row.data
+      if (isCartao && cartaoData) {
+        dataVencimento = calcularVencimentoFatura(row.data, cartaoData.dia_fechamento, cartaoData.dia_vencimento)
+      }
+
+      // Verificar se tem parcela (formato "X/Y")
+      const parcelaMatch = row.parcela?.match(/^(\d+)\/(\d+)$/)
+      const parcelaAtual = parcelaMatch ? parseInt(parcelaMatch[1]) : null
+      const parcelaTotal = parcelaMatch ? parseInt(parcelaMatch[2]) : null
+      const grupoParcela = parcelaMatch ? crypto.randomUUID() : null
+
+      // Transação base (a parcela atual ou transação normal)
+      const baseTransaction = {
+        tipo: row.tipo || 'despesa',
+        descricao: row.descricao + (parcelaAtual ? ` (${parcelaAtual}/${parcelaTotal})` : ''),
+        valor: row.valor,
+        data_vencimento: dataVencimento,
+        data_pagamento: isCartao ? null : row.data,
+        status: isCartao ? 'pendente' as const : 'pago' as const,
+        conta_bancaria_id: targetType === 'conta' ? targetId : null,
+        cartao_credito_id: isCartao ? targetId : null,
+        franquia_id: franquiaId,
+        is_pessoal: false,
+        usuario_id: usuarioId || null,
+        origem_integracao: 'importacao',
+        observacoes: `Importado de: ${file.name}`,
+        recorrente: row.fixo || false,
+        recorrencia_tipo: row.fixo ? 'mensal' : null,
+        parcela_atual: parcelaAtual,
+        parcela_total: parcelaTotal,
+        grupo_parcela_id: grupoParcela,
+      }
+
+      transacoes.push(baseTransaction)
+
+      // Se tem parcelas, gerar as restantes (parcela X+1 até Y)
+      if (parcelaAtual && parcelaTotal && parcelaTotal > parcelaAtual) {
+        const restantes = parcelaTotal - parcelaAtual
+        for (let p = 1; p <= restantes; p++) {
+          const numParcela = parcelaAtual + p
+          const dataParc = adicionarMeses(dataVencimento, p)
+          transacoes.push({
+            ...baseTransaction,
+            descricao: row.descricao + ` (${numParcela}/${parcelaTotal})`,
+            data_vencimento: dataParc,
+            data_pagamento: null,
+            status: 'pendente',
+            parcela_atual: numParcela,
+          })
+          parcelasGeradas++
+        }
+      }
+    }
 
     const { data, error } = await supabase
       .from('_financeiro_transacoes')
@@ -301,7 +419,7 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
-    // Se importou para conta bancária, atualizar saldo
+    // Se importou para conta bancária, atualizar saldo (só transações com status 'pago')
     if (targetType === 'conta') {
       const { data: conta } = await supabase
         .from('_financeiro_contas_bancarias')
@@ -321,10 +439,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Se importou para cartão de crédito, atualizar limite usado
+    // Se importou para cartão de crédito, atualizar limite usado (soma de todas as despesas, incluindo parcelas)
     if (targetType === 'cartao') {
-      const totalGastos = parsed.filter(r => r.tipo === 'despesa').reduce((s, r) => s + r.valor, 0)
-      
+      const totalGastosCartao = transacoes
+        .filter(t => t.tipo === 'despesa')
+        .reduce((s, t) => s + Number(t.valor), 0)
+
       const { data: cartao } = await supabase
         .from('_financeiro_cartoes_credito')
         .select('limite_usado')
@@ -334,20 +454,24 @@ export async function POST(request: Request) {
       if (cartao) {
         await supabase
           .from('_financeiro_cartoes_credito')
-          .update({ limite_usado: Number(cartao.limite_usado) + totalGastos })
+          .update({ limite_usado: Number(cartao.limite_usado) + totalGastosCartao })
           .eq('id', targetId)
       }
     }
+
+    const totalFixas = transacoes.filter(t => t.recorrente === true).length
 
     return NextResponse.json({
       success: true,
       importadas: data?.length || 0,
       resumo: {
-        total: parsed.length,
-        receitas: parsed.filter(r => r.tipo === 'receita').length,
-        despesas: parsed.filter(r => r.tipo === 'despesa').length,
-        valor_receitas: parsed.filter(r => r.tipo === 'receita').reduce((s, r) => s + r.valor, 0),
-        valor_despesas: parsed.filter(r => r.tipo === 'despesa').reduce((s, r) => s + r.valor, 0),
+        total: transacoes.length,
+        receitas: transacoes.filter(t => t.tipo === 'receita').length,
+        despesas: transacoes.filter(t => t.tipo === 'despesa').length,
+        valor_receitas: transacoes.filter(t => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0),
+        valor_despesas: transacoes.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0),
+        parcelas_geradas: parcelasGeradas,
+        transacoes_fixas: totalFixas,
       }
     }, { status: 201 })
   } catch (error) {
