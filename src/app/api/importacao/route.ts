@@ -197,6 +197,7 @@ function parseCSV(text: string): ImportedRow[] {
   const valorIdx = headers.findIndex(h => ['valor', 'value', 'amount', 'quantia', 'montante', 'vlr'].includes(h))
   const tipoIdx = headers.findIndex(h => ['tipo', 'type', 'natureza', 'credito_debito', 'crédito_débito', 'cd'].includes(h))
   const franquiaIdx = headers.findIndex(h => ['franquia', 'empresa', 'company', 'unidade', 'filial', 'loja'].includes(h))
+  const categoriaIdx = headers.findIndex(h => ['categoria', 'category', 'cat', 'grupo', 'classificacao', 'classificação'].includes(h))
   const parcelaIdx = headers.findIndex(h => ['parcela', 'installment', 'parc', 'nº parcela', 'n parcela'].includes(h))
   const prazoIdx = headers.findIndex(h => ['prazo', 'total parcelas', 'total_parcelas', 'parcelas', 'installments', 'vezes', 'x'].includes(h))
   const fixoIdx = headers.findIndex(h => ['fixo', 'fixo/recorrente', 'recorrente', 'fixed', 'recurring', 'mensal'].includes(h))
@@ -264,6 +265,7 @@ function parseCSV(text: string): ImportedRow[] {
       valor: Math.abs(valor),
       tipo,
       franquia: franquiaIdx >= 0 ? cols[franquiaIdx]?.trim() || '' : '',
+      categoria: categoriaIdx >= 0 ? cols[categoriaIdx]?.trim() || '' : '',
       parcela,
       prazo,
       fixo,
@@ -346,6 +348,16 @@ export async function POST(request: Request) {
       franquiaMap[f.nome.toLowerCase().trim()] = f.id
     }
 
+    // Buscar categorias para mapear pelo nome
+    const { data: categorias } = await supabase
+      .from('_financeiro_categorias')
+      .select('id, nome')
+
+    const categoriaMap: Record<string, string> = {}
+    for (const c of (categorias || [])) {
+      categoriaMap[c.nome.toLowerCase().trim()] = c.id
+    }
+
     // Buscar dados do cartão se for importação para cartão (para calcular vencimentos)
     let cartaoData: { dia_fechamento: number; dia_vencimento: number } | null = null
     if (targetType === 'cartao') {
@@ -363,6 +375,7 @@ export async function POST(request: Request) {
 
     for (const row of parsed) {
       const franquiaId = row.franquia ? (franquiaMap[row.franquia.toLowerCase().trim()] || null) : null
+      const categoriaId = row.categoria ? (categoriaMap[row.categoria.toLowerCase().trim()] || null) : null
       const isCartao = targetType === 'cartao'
 
       // Calcular data de vencimento base
@@ -387,6 +400,7 @@ export async function POST(request: Request) {
         status: isCartao ? 'pendente' as const : 'pago' as const,
         conta_bancaria_id: targetType === 'conta' ? targetId : null,
         cartao_credito_id: isCartao ? targetId : null,
+        categoria_id: categoriaId,
         franquia_id: franquiaId,
         is_pessoal: false,
         usuario_id: usuarioId || null,

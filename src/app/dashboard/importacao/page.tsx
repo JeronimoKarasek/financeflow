@@ -194,12 +194,12 @@ export default function ImportacaoPage() {
 
   const downloadTemplate = () => {
     const franquiaNomes = franquias.map(f => f.nome).join(' | ')
-    const header = 'Data;Descricao;Valor;Tipo;Franquia;Parcela;Prazo;Fixo'
-    const exemplo1 = `${new Date().toLocaleDateString('pt-BR')};Compra Magazine Luiza;-500.00;despesa;${franquias[0]?.nome || 'Empresa A'};2;10;nao`
-    const exemplo2 = `${new Date().toLocaleDateString('pt-BR')};Netflix Assinatura;-45.90;despesa;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa A'};;;sim`
-    const exemplo3 = `${new Date().toLocaleDateString('pt-BR')};Aluguel escritorio;-2800.00;despesa;${franquias[0]?.nome || 'Empresa A'};;;sim`
-    const exemplo4 = `${new Date().toLocaleDateString('pt-BR')};Celular Samsung;-299.90;despesa;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'};1;12;nao`
-    const comentario = `\n# INSTRUCOES:\n# - Separador: ponto-e-virgula (;)\n# - Coluna "Data": formato dd/mm/aaaa ou aaaa-mm-dd\n# - Coluna "Valor": use ponto como decimal. Negativo = despesa\n# - Coluna "Tipo": receita ou despesa (se omitido, define pelo sinal do valor)\n# - Coluna "Franquia": nome EXATO da empresa/franquia cadastrada\n# - Coluna "Parcela": numero da parcela atual (ex: 2)\n# - Coluna "Prazo": total de parcelas (ex: 10). Gera parcelas restantes automaticamente\n# - Coluna "Fixo": sim ou nao. Se sim, marca como despesa fixa mensal (recorrente)\n# - Franquias cadastradas: ${franquiaNomes || '(nenhuma cadastrada)'}\n# - Para cartao: vencimento calculado automaticamente pelo dia de fechamento\n# - Remova estas linhas de comentario antes de importar`
+    const header = 'Data;Descricao;Valor;Tipo;Categoria;Franquia;Parcela;Prazo;Fixo'
+    const exemplo1 = `${new Date().toLocaleDateString('pt-BR')};Compra Magazine Luiza;-500.00;despesa;Compras;${franquias[0]?.nome || 'Empresa A'};2;10;nao`
+    const exemplo2 = `${new Date().toLocaleDateString('pt-BR')};Netflix Assinatura;-45.90;despesa;Assinaturas;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa A'};;;sim`
+    const exemplo3 = `${new Date().toLocaleDateString('pt-BR')};Aluguel escritorio;-2800.00;despesa;Aluguel;${franquias[0]?.nome || 'Empresa A'};;;sim`
+    const exemplo4 = `${new Date().toLocaleDateString('pt-BR')};Celular Samsung;-299.90;despesa;Equipamentos;${franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'};1;12;nao`
+    const comentario = `\n# INSTRUCOES:\n# - Separador: ponto-e-virgula (;)\n# - Coluna "Data": formato dd/mm/aaaa ou aaaa-mm-dd\n# - Coluna "Valor": use ponto como decimal. Negativo = despesa\n# - Coluna "Tipo": receita ou despesa (se omitido, define pelo sinal do valor)\n# - Coluna "Categoria": nome EXATO da categoria cadastrada (ex: Compras, Aluguel)\n# - Coluna "Franquia": nome EXATO da empresa/franquia cadastrada\n# - Coluna "Parcela": numero da parcela atual (ex: 2)\n# - Coluna "Prazo": total de parcelas (ex: 10). Gera parcelas restantes automaticamente\n# - Coluna "Fixo": sim ou nao. Se sim, marca como despesa fixa mensal (recorrente)\n# - Franquias cadastradas: ${franquiaNomes || '(nenhuma cadastrada)'}\n# - Para cartao: vencimento calculado automaticamente pelo dia de fechamento\n# - Remova estas linhas de comentario antes de importar`
 
     const csv = `${header}\n${exemplo1}\n${exemplo2}\n${exemplo3}\n${exemplo4}\n${comentario}`
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
@@ -321,7 +321,7 @@ export default function ImportacaoPage() {
                 <FileSpreadsheet className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-medium text-gray-200">CSV</p>
-                  <p className="text-[10px] text-gray-500">Data; Descrição; Valor; Tipo; Franquia; Parcela; Prazo; Fixo</p>
+                  <p className="text-[10px] text-gray-500">Data; Descrição; Valor; Tipo; Categoria; Franquia; Parcela; Prazo; Fixo</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
@@ -491,6 +491,7 @@ export default function ImportacaoPage() {
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Descricao</th>
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Valor</th>
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Tipo</th>
+                    <th className="text-left px-3 py-2 text-green-400 font-semibold">Categoria</th>
                     <th className="text-left px-3 py-2 text-indigo-400 font-semibold">Franquia</th>
                     <th className="text-left px-3 py-2 text-purple-400 font-semibold">Parcela</th>
                     <th className="text-left px-3 py-2 text-purple-400 font-semibold">Prazo</th>
@@ -503,6 +504,7 @@ export default function ImportacaoPage() {
                     <td className="px-3 py-2 text-gray-300">Compra Magazine Luiza</td>
                     <td className="px-3 py-2 text-red-400">-500.00</td>
                     <td className="px-3 py-2 text-gray-400">despesa</td>
+                    <td className="px-3 py-2 text-green-400">Compras</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[0]?.nome || 'Empresa A'}</td>
                     <td className="px-3 py-2 text-purple-400">2</td>
                     <td className="px-3 py-2 text-purple-400">10</td>
@@ -513,6 +515,7 @@ export default function ImportacaoPage() {
                     <td className="px-3 py-2 text-gray-300">Netflix Assinatura</td>
                     <td className="px-3 py-2 text-red-400">-45.90</td>
                     <td className="px-3 py-2 text-gray-400">despesa</td>
+                    <td className="px-3 py-2 text-green-400">Assinaturas</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[1]?.nome || franquias[0]?.nome || 'Empresa B'}</td>
                     <td className="px-3 py-2 text-gray-600">-</td>
                     <td className="px-3 py-2 text-gray-600">-</td>
@@ -523,6 +526,7 @@ export default function ImportacaoPage() {
                     <td className="px-3 py-2 text-gray-300">Celular Samsung</td>
                     <td className="px-3 py-2 text-red-400">-299.90</td>
                     <td className="px-3 py-2 text-gray-400">despesa</td>
+                    <td className="px-3 py-2 text-green-400">Equipamentos</td>
                     <td className="px-3 py-2 text-amber-400">{franquias[0]?.nome || 'Empresa A'}</td>
                     <td className="px-3 py-2 text-purple-400">1</td>
                     <td className="px-3 py-2 text-purple-400">12</td>
@@ -550,6 +554,10 @@ export default function ImportacaoPage() {
                 <div className="p-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
                   <p className="text-xs font-medium text-indigo-400 mb-1">Coluna: Valor</p>
                   <p className="text-[11px] text-gray-400">Use ponto como decimal (ex: <code className="text-gray-300">1500.00</code>). Negativo = despesa automaticamente.</p>
+                </div>
+                <div className="p-3 rounded-lg bg-[#16161f] border border-green-500/20">
+                  <p className="text-xs font-medium text-green-400 mb-1">Coluna: Categoria <span className="text-gray-600">(opcional)</span></p>
+                  <p className="text-[11px] text-gray-400">Nome <strong>exato</strong> da categoria cadastrada (ex: Compras, Aluguel, Assinaturas). Associa automaticamente.</p>
                 </div>
               </div>
               <div className="space-y-3">
