@@ -10,7 +10,8 @@ interface ImportedRow {
   tipo?: 'receita' | 'despesa'
   categoria?: string
   franquia?: string
-  parcela?: string   // formato "2/10"
+  parcela?: number   // nº da parcela atual (ex: 2)
+  prazo?: number     // total de parcelas (ex: 10)
   fixo?: boolean     // transação fixa mensal
 }
 
@@ -196,7 +197,8 @@ function parseCSV(text: string): ImportedRow[] {
   const valorIdx = headers.findIndex(h => ['valor', 'value', 'amount', 'quantia', 'montante', 'vlr'].includes(h))
   const tipoIdx = headers.findIndex(h => ['tipo', 'type', 'natureza', 'credito_debito', 'crédito_débito', 'cd'].includes(h))
   const franquiaIdx = headers.findIndex(h => ['franquia', 'empresa', 'company', 'unidade', 'filial', 'loja'].includes(h))
-  const parcelaIdx = headers.findIndex(h => ['parcela', 'parcelas', 'installment', 'installments', 'parc'].includes(h))
+  const parcelaIdx = headers.findIndex(h => ['parcela', 'installment', 'parc', 'nº parcela', 'n parcela'].includes(h))
+  const prazoIdx = headers.findIndex(h => ['prazo', 'total parcelas', 'total_parcelas', 'parcelas', 'installments', 'vezes', 'x'].includes(h))
   const fixoIdx = headers.findIndex(h => ['fixo', 'fixo/recorrente', 'recorrente', 'fixed', 'recurring', 'mensal'].includes(h))
 
   // Se não encontrou colunas essenciais, tentar fallback posicional (data, desc, valor)
@@ -237,11 +239,16 @@ function parseCSV(text: string): ImportedRow[] {
       data = new Date().toISOString().split('T')[0]
     }
 
-    // Detectar parcela (formato "2/10" ou "02/10")
-    let parcela = ''
+    // Detectar parcela e prazo (colunas separadas)
+    let parcela: number | undefined = undefined
+    let prazo: number | undefined = undefined
     if (parcelaIdx >= 0) {
-      const p = cols[parcelaIdx]?.trim() || ''
-      if (/^\d+\/\d+$/.test(p)) parcela = p
+      const p = parseInt(cols[parcelaIdx]?.trim() || '')
+      if (!isNaN(p) && p > 0) parcela = p
+    }
+    if (prazoIdx >= 0) {
+      const p = parseInt(cols[prazoIdx]?.trim() || '')
+      if (!isNaN(p) && p > 0) prazo = p
     }
 
     // Detectar fixo
@@ -258,6 +265,7 @@ function parseCSV(text: string): ImportedRow[] {
       tipo,
       franquia: franquiaIdx >= 0 ? cols[franquiaIdx]?.trim() || '' : '',
       parcela,
+      prazo,
       fixo,
     })
   }
@@ -363,11 +371,11 @@ export async function POST(request: Request) {
         dataVencimento = calcularVencimentoFatura(row.data, cartaoData.dia_fechamento, cartaoData.dia_vencimento)
       }
 
-      // Verificar se tem parcela (formato "X/Y")
-      const parcelaMatch = row.parcela?.match(/^(\d+)\/(\d+)$/)
-      const parcelaAtual = parcelaMatch ? parseInt(parcelaMatch[1]) : null
-      const parcelaTotal = parcelaMatch ? parseInt(parcelaMatch[2]) : null
-      const grupoParcela = parcelaMatch ? crypto.randomUUID() : null
+      // Verificar se tem parcela e prazo
+      const parcelaAtual = row.parcela || null
+      const parcelaTotal = row.prazo || null
+      const temParcela = parcelaAtual && parcelaTotal && parcelaTotal > 0
+      const grupoParcela = temParcela ? crypto.randomUUID() : null
 
       // Transação base (a parcela atual ou transação normal)
       const baseTransaction = {
@@ -394,7 +402,7 @@ export async function POST(request: Request) {
       transacoes.push(baseTransaction)
 
       // Se tem parcelas, gerar as restantes (parcela X+1 até Y)
-      if (parcelaAtual && parcelaTotal && parcelaTotal > parcelaAtual) {
+      if (temParcela && parcelaAtual && parcelaTotal && parcelaTotal > parcelaAtual) {
         const restantes = parcelaTotal - parcelaAtual
         for (let p = 1; p <= restantes; p++) {
           const numParcela = parcelaAtual + p
