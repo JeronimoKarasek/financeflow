@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, X, Bell, Phone, Mail, AlertTriangle, Clock, CheckCircle, Send } from 'lucide-react'
+import { Plus, Search, X, Bell, Phone, Mail, AlertTriangle, Clock, CheckCircle, Send, Pencil, Trash2 } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel, diasParaVencer } from '@/lib/utils'
 import type { Cobranca, Franquia } from '@/types/database'
 
@@ -10,6 +10,8 @@ export default function CobrancasPage() {
   const [franquias, setFranquias] = useState<Franquia[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [filtros, setFiltros] = useState({ tipo: '', status: '', search: '' })
   const [sendingWhatsapp, setSendingWhatsapp] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -46,12 +48,58 @@ export default function CobrancasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await fetch('/api/cobrancas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, valor: parseFloat(form.valor) }),
-    })
+    if (editingId) {
+      await fetch(`/api/cobrancas/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, valor: parseFloat(form.valor) }),
+      })
+    } else {
+      await fetch('/api/cobrancas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, valor: parseFloat(form.valor) }),
+      })
+    }
     setShowModal(false)
+    setEditingId(null)
+    resetForm()
+    fetchCobrancas()
+  }
+
+  const resetForm = () => {
+    setForm({
+      tipo: 'receber', descricao: '', valor: '', data_vencimento: '',
+      nome_contato: '', telefone_contato: '', email_contato: '', cpf_cnpj_contato: '',
+      notificar_whatsapp: true, dias_antes_notificar: 3, franquia_id: '', is_pessoal: false,
+      observacoes: '', link_pagamento: '',
+    })
+  }
+
+  const handleEdit = (c: Cobranca) => {
+    setEditingId(c.id)
+    setForm({
+      tipo: c.tipo,
+      descricao: c.descricao,
+      valor: String(c.valor),
+      data_vencimento: c.data_vencimento,
+      nome_contato: c.nome_contato || '',
+      telefone_contato: c.telefone_contato || '',
+      email_contato: c.email_contato || '',
+      cpf_cnpj_contato: c.cpf_cnpj_contato || '',
+      notificar_whatsapp: c.notificar_whatsapp,
+      dias_antes_notificar: c.dias_antes_notificar,
+      franquia_id: c.franquia_id || '',
+      is_pessoal: c.is_pessoal,
+      observacoes: c.observacoes || '',
+      link_pagamento: c.link_pagamento || '',
+    })
+    setShowModal(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    await fetch(`/api/cobrancas/${id}`, { method: 'DELETE' })
+    setConfirmDelete(null)
     fetchCobrancas()
   }
 
@@ -110,7 +158,7 @@ export default function CobrancasPage() {
           <button onClick={handleCheckCobrancas} className="btn-secondary flex items-center gap-2 text-sm">
             <Bell className="w-4 h-4" /> Verificar Cobranças
           </button>
-          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 text-sm">
+          <button onClick={() => { resetForm(); setEditingId(null); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="w-4 h-4" /> Nova Cobrança
           </button>
         </div>
@@ -202,6 +250,12 @@ export default function CobrancasPage() {
                           <CheckCircle className="w-4 h-4" />
                         </button>
                       )}
+                      <button onClick={() => handleEdit(c)} className="p-2 rounded-lg hover:bg-indigo-500/10 text-gray-400 hover:text-indigo-400 transition-colors" title="Editar">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setConfirmDelete(c.id)} className="p-2 rounded-lg hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors" title="Excluir">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                       {c.telefone_contato && c.status !== 'pago' && (
                         <button onClick={() => handleSendWhatsapp(c)} disabled={sendingWhatsapp === c.id} className="p-2 rounded-lg hover:bg-green-500/10 text-gray-400 hover:text-green-400 transition-colors" title="Enviar WhatsApp">
                           {sendingWhatsapp === c.id ? <div className="w-4 h-4 border-2 border-green-400/30 border-t-green-400 rounded-full animate-spin" /> : <Send className="w-4 h-4" />}
@@ -222,8 +276,8 @@ export default function CobrancasPage() {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="relative w-full max-w-lg glass-card p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-white">Nova Cobrança</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <h2 className="text-lg font-bold text-white">{editingId ? 'Editar Cobrança' : 'Nova Cobrança'}</h2>
+              <button onClick={() => { setShowModal(false); setEditingId(null) }} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex gap-2">
@@ -274,10 +328,26 @@ export default function CobrancasPage() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
-                <button type="submit" className="btn-primary flex-1 text-sm">Criar Cobrança</button>
+                <button type="button" onClick={() => { setShowModal(false); setEditingId(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button type="submit" className="btn-primary flex-1 text-sm">{editingId ? 'Salvar Alterações' : 'Criar Cobrança'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação de Exclusão */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmDelete(null)} />
+          <div className="relative glass-card p-6 max-w-sm w-full text-center">
+            <Trash2 className="w-10 h-10 text-red-400 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-white mb-2">Excluir Cobrança?</h3>
+            <p className="text-sm text-gray-400 mb-6">Esta ação irá excluir a cobrança e cancelar a transação vinculada. Não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDelete(null)} className="btn-secondary flex-1 text-sm">Cancelar</button>
+              <button onClick={() => handleDelete(confirmDelete)} className="flex-1 py-2 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors">Excluir</button>
+            </div>
           </div>
         </div>
       )}

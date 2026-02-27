@@ -35,14 +35,46 @@ export async function POST(request: Request) {
     const body = await request.json()
     const supabase = createServerSupabase()
 
-    const { data, error } = await supabase
+    // 1) Criar a cobrança
+    const { data: cobranca, error } = await supabase
       .from('_financeiro_cobrancas')
       .insert(body)
       .select()
       .single()
 
     if (error) throw error
-    return NextResponse.json(data, { status: 201 })
+
+    // 2) Criar transação vinculada
+    try {
+      const transacaoData: Record<string, unknown> = {
+        descricao: `[Cobrança] ${body.descricao}`,
+        valor: body.valor,
+        tipo: body.tipo === 'receber' ? 'receita' : 'despesa',
+        status: 'pendente',
+        data_vencimento: body.data_vencimento,
+        franquia_id: body.franquia_id || null,
+        is_pessoal: body.is_pessoal || false,
+        observacoes: `Gerado automaticamente pela cobrança: ${cobranca.id}`,
+      }
+
+      const { data: transacao } = await supabase
+        .from('_financeiro_transacoes')
+        .insert(transacaoData)
+        .select()
+        .single()
+
+      if (transacao) {
+        await supabase
+          .from('_financeiro_cobrancas')
+          .update({ transacao_id: transacao.id })
+          .eq('id', cobranca.id)
+        cobranca.transacao_id = transacao.id
+      }
+    } catch (e) {
+      console.error('Erro ao criar transação da cobrança:', e)
+    }
+
+    return NextResponse.json(cobranca, { status: 201 })
   } catch (error) {
     console.error('Cobranças POST error:', error)
     return NextResponse.json({ error: 'Erro ao criar cobrança' }, { status: 500 })

@@ -26,106 +26,160 @@ export async function GET(request: Request) {
 
     const dataInicioStr = dataInicio.toISOString().split('T')[0]
 
-    // Buscar transações do período
-    let query = supabase
+    // Buscar TODAS transações (para fluxo e comparativo) — últimos 12 meses
+    const dozeAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1).toISOString().split('T')[0]
+    let queryAll = supabase
       .from('_financeiro_transacoes')
-      .select('*')
-      .gte('data_vencimento', dataInicioStr)
+      .select('*, _financeiro_categorias(nome, cor), _financeiro_franquias(nome)')
+      .gte('data_vencimento', dozeAtras)
       .neq('status', 'cancelado')
+    if (franquiaId) queryAll = queryAll.eq('franquia_id', franquiaId)
+    const { data: todasTransacoes } = await queryAll
 
-    if (franquiaId) {
-      query = query.eq('franquia_id', franquiaId)
-    }
+    // Transações do período selecionado
+    const transacoes = (todasTransacoes || []).filter(t => t.data_vencimento >= dataInicioStr)
 
-    const { data: transacoes } = await query
+    // === TOTAIS ===
+    const totalReceitas = transacoes.filter(t => t.tipo === 'receita' && t.status === 'pago')
+      .reduce((sum, t) => sum + Number(t.valor), 0)
+    const totalDespesas = transacoes.filter(t => t.tipo === 'despesa' && t.status === 'pago')
+      .reduce((sum, t) => sum + Number(t.valor), 0)
+    const pendentes = transacoes.filter(t => t.status === 'pendente').length
+    const atrasados = transacoes.filter(t => t.status === 'atrasado').length
 
-    // Calcular totais
-    const totalReceitas = transacoes?.filter(t => t.tipo === 'receita' && t.status === 'pago')
-      .reduce((sum, t) => sum + Number(t.valor), 0) || 0
-    const totalDespesas = transacoes?.filter(t => t.tipo === 'despesa' && t.status === 'pago')
-      .reduce((sum, t) => sum + Number(t.valor), 0) || 0
-    const pendentes = transacoes?.filter(t => t.status === 'pendente').length || 0
-    const atrasados = transacoes?.filter(t => t.status === 'atrasado').length || 0
+    // Valores pendentes e atrasados
+    const receitasPendentes = transacoes.filter(t => t.tipo === 'receita' && t.status === 'pendente')
+      .reduce((s, t) => s + Number(t.valor), 0)
+    const despesasPendentes = transacoes.filter(t => t.tipo === 'despesa' && t.status === 'pendente')
+      .reduce((s, t) => s + Number(t.valor), 0)
+    const valorAtrasado = transacoes.filter(t => t.status === 'atrasado')
+      .reduce((s, t) => s + Number(t.valor), 0)
+    const totalReceitasPeriodo = transacoes.filter(t => t.tipo === 'receita')
+      .reduce((s, t) => s + Number(t.valor), 0)
+    const totalDespesasPeriodo = transacoes.filter(t => t.tipo === 'despesa')
+      .reduce((s, t) => s + Number(t.valor), 0)
 
-    // Receitas/Despesas do mês atual
+    // === MÊS ATUAL ===
     const mesAtualInicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().split('T')[0]
-    const receitasMes = transacoes?.filter(t => t.tipo === 'receita' && t.status === 'pago' && t.data_vencimento >= mesAtualInicio)
-      .reduce((sum, t) => sum + Number(t.valor), 0) || 0
-    const despesasMes = transacoes?.filter(t => t.tipo === 'despesa' && t.status === 'pago' && t.data_vencimento >= mesAtualInicio)
-      .reduce((sum, t) => sum + Number(t.valor), 0) || 0
+    const receitasMes = transacoes.filter(t => t.tipo === 'receita' && t.status === 'pago' && t.data_vencimento >= mesAtualInicio)
+      .reduce((sum, t) => sum + Number(t.valor), 0)
+    const despesasMes = transacoes.filter(t => t.tipo === 'despesa' && t.status === 'pago' && t.data_vencimento >= mesAtualInicio)
+      .reduce((sum, t) => sum + Number(t.valor), 0)
 
-    // Buscar franquias com saldo
+    // === COMPARATIVO MÊS ANTERIOR ===
+    const mesAnteriorInicio = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).toISOString().split('T')[0]
+    const mesAnteriorFim = new Date(hoje.getFullYear(), hoje.getMonth(), 0).toISOString().split('T')[0]
+    const allTrans = todasTransacoes || []
+    const receitasMesAnterior = allTrans.filter(t => t.tipo === 'receita' && t.status === 'pago' && t.data_vencimento >= mesAnteriorInicio && t.data_vencimento <= mesAnteriorFim)
+      .reduce((s, t) => s + Number(t.valor), 0)
+    const despesasMesAnterior = allTrans.filter(t => t.tipo === 'despesa' && t.status === 'pago' && t.data_vencimento >= mesAnteriorInicio && t.data_vencimento <= mesAnteriorFim)
+      .reduce((s, t) => s + Number(t.valor), 0)
+
+    // === FRANQUIAS ===
     const { data: franquias } = await supabase
       .from('_financeiro_franquias')
       .select('id, nome, cor_tema')
       .eq('ativa', true)
 
-    const franquiasComSaldo = await Promise.all(
-      (franquias || []).map(async (f) => {
-        const { data: transF } = await supabase
-          .from('_financeiro_transacoes')
-          .select('tipo, valor, status')
-          .eq('franquia_id', f.id)
-          .eq('status', 'pago')
+    const franquiasComSaldo = (franquias || []).map(f => {
+      const transF = allTrans.filter(t => t.franquia_id === f.id)
+      const receitas = transF.filter(t => t.tipo === 'receita' && t.status === 'pago').reduce((s, t) => s + Number(t.valor), 0)
+      const despesas = transF.filter(t => t.tipo === 'despesa' && t.status === 'pago').reduce((s, t) => s + Number(t.valor), 0)
+      return { nome: f.nome, saldo: receitas - despesas, receitas, despesas, cor: f.cor_tema }
+    })
 
-        const receitas = transF?.filter(t => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0) || 0
-        const despesas = transF?.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0) || 0
-
-        return { nome: f.nome, saldo: receitas - despesas, cor: f.cor_tema }
-      })
-    )
-
-    // Buscar cobranças próximas
+    // === COBRANÇAS ===
     const { data: cobrancas } = await supabase
       .from('_financeiro_cobrancas')
-      .select('id, descricao, valor, data_vencimento, status')
+      .select('id, descricao, valor, data_vencimento, status, tipo, nome_contato')
       .in('status', ['pendente', 'atrasado'])
       .order('data_vencimento', { ascending: true })
-      .limit(5)
+      .limit(8)
 
-    // Fluxo mensal (últimos 6 meses)
+    // === FLUXO MENSAL (12 meses) ===
     const fluxoMensal = []
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
       const fim = new Date(hoje.getFullYear(), hoje.getMonth() - i + 1, 0)
       const mesLabel = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-      
-      const receitas = transacoes?.filter(t => {
+
+      const receitas = allTrans.filter(t => {
         const dt = new Date(t.data_vencimento)
         return t.tipo === 'receita' && t.status === 'pago' && dt >= d && dt <= fim
-      }).reduce((s, t) => s + Number(t.valor), 0) || 0
+      }).reduce((s, t) => s + Number(t.valor), 0)
 
-      const despesas = transacoes?.filter(t => {
+      const despesas = allTrans.filter(t => {
         const dt = new Date(t.data_vencimento)
         return t.tipo === 'despesa' && t.status === 'pago' && dt >= d && dt <= fim
-      }).reduce((s, t) => s + Number(t.valor), 0) || 0
+      }).reduce((s, t) => s + Number(t.valor), 0)
 
-      fluxoMensal.push({ mes: mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1), receitas, despesas })
+      fluxoMensal.push({ mes: mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1), receitas, despesas, saldo: receitas - despesas })
     }
 
-    // Categorias de despesa
-    const { data: categorias } = await supabase
+    // === CATEGORIAS (receita e despesa) ===
+    const { data: catDespesas } = await supabase
       .from('_financeiro_categorias')
       .select('id, nome, cor')
       .eq('tipo', 'despesa')
+    const { data: catReceitas } = await supabase
+      .from('_financeiro_categorias')
+      .select('id, nome, cor')
+      .eq('tipo', 'receita')
 
-    const categoriasDespesas = await Promise.all(
-      (categorias || []).slice(0, 8).map(async (cat) => {
-        const { data: transC } = await supabase
-          .from('_financeiro_transacoes')
-          .select('valor')
-          .eq('categoria_id', cat.id)
-          .eq('tipo', 'despesa')
-          .neq('status', 'cancelado')
-          .gte('data_vencimento', dataInicioStr)
+    const buildCategorias = (cats: typeof catDespesas, tipo: string) => {
+      return (cats || []).map(cat => {
+        const total = transacoes.filter(t => t.categoria_id === cat.id && t.tipo === tipo && t.status !== 'cancelado')
+          .reduce((s, t) => s + Number(t.valor), 0)
+        return { nome: cat.nome, valor: total, cor: cat.cor }
+      }).filter(c => c.valor > 0).sort((a, b) => b.valor - a.valor).slice(0, 8)
+    }
 
-        return {
-          nome: cat.nome,
-          valor: transC?.reduce((s, t) => s + Number(t.valor), 0) || 0,
-          cor: cat.cor,
-        }
-      })
-    )
+    const categoriasDespesas = buildCategorias(catDespesas, 'despesa')
+    const categoriasReceitas = buildCategorias(catReceitas, 'receita')
+
+    // === TOP TRANSAÇÕES ===
+    const topReceitas = transacoes
+      .filter(t => t.tipo === 'receita' && t.status !== 'cancelado')
+      .sort((a, b) => Number(b.valor) - Number(a.valor))
+      .slice(0, 5)
+      .map(t => ({
+        id: t.id,
+        descricao: t.descricao,
+        valor: Number(t.valor),
+        data_vencimento: t.data_vencimento,
+        status: t.status,
+        categoria: t._financeiro_categorias?.nome || null,
+        franquia: t._financeiro_franquias?.nome || null,
+      }))
+
+    const topDespesas = transacoes
+      .filter(t => t.tipo === 'despesa' && t.status !== 'cancelado')
+      .sort((a, b) => Number(b.valor) - Number(a.valor))
+      .slice(0, 5)
+      .map(t => ({
+        id: t.id,
+        descricao: t.descricao,
+        valor: Number(t.valor),
+        data_vencimento: t.data_vencimento,
+        status: t.status,
+        categoria: t._financeiro_categorias?.nome || null,
+        franquia: t._financeiro_franquias?.nome || null,
+      }))
+
+    // === ÚLTIMAS TRANSAÇÕES ===
+    const ultimasTransacoes = transacoes
+      .sort((a, b) => b.data_vencimento.localeCompare(a.data_vencimento))
+      .slice(0, 10)
+      .map(t => ({
+        id: t.id,
+        descricao: t.descricao,
+        valor: Number(t.valor),
+        tipo: t.tipo,
+        data_vencimento: t.data_vencimento,
+        status: t.status,
+        categoria: t._financeiro_categorias?.nome || null,
+        franquia: t._financeiro_franquias?.nome || null,
+      }))
 
     return NextResponse.json({
       totalReceitas,
@@ -135,15 +189,28 @@ export async function GET(request: Request) {
       atrasados,
       receitasMes,
       despesasMes,
+      receitasPendentes,
+      despesasPendentes,
+      valorAtrasado,
+      totalReceitasPeriodo,
+      totalDespesasPeriodo,
+      receitasMesAnterior,
+      despesasMesAnterior,
       franquias: franquiasComSaldo,
       fluxoMensal,
-      categoriasDespesas: categoriasDespesas.filter(c => c.valor > 0).sort((a, b) => b.valor - a.valor),
+      categoriasDespesas,
+      categoriasReceitas,
+      topReceitas,
+      topDespesas,
+      ultimasTransacoes,
       proximasCobrancas: (cobrancas || []).map(c => ({
         id: c.id,
         descricao: c.descricao,
         valor: Number(c.valor),
         vencimento: c.data_vencimento,
         status: c.status,
+        tipo: c.tipo,
+        nome_contato: c.nome_contato,
       })),
     })
   } catch (error) {
