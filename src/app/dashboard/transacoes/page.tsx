@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard } from 'lucide-react'
@@ -24,6 +24,8 @@ export default function TransacoesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [actionMenu, setActionMenu] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+  const [menuTransaction, setMenuTransaction] = useState<Transacao | null>(null)
   const [filtros, setFiltros] = useState({ tipo: '', status: '', franquia_id: '', search: '' })
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
@@ -151,26 +153,61 @@ export default function TransacoesPage() {
       parcela_total: t.parcela_total || 1,
     })
     setShowModal(true)
+    closeMenu()
+  }
+
+  const closeMenu = () => {
     setActionMenu(null)
+    setMenuPos(null)
+    setMenuTransaction(null)
+  }
+
+  const openMenu = (t: Transacao, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (actionMenu === t.id) {
+      closeMenu()
+      return
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    setMenuTransaction(t)
+    setActionMenu(t.id)
   }
 
   const handleDelete = async (id: string) => {
-    await fetch(`/api/transacoes/${id}`, { method: 'DELETE' })
+    try {
+      const res = await fetch(`/api/transacoes/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || 'Erro ao excluir transação')
+        return
+      }
+    } catch {
+      alert('Erro de conexão ao excluir')
+    }
     setDeleteConfirm(null)
-    setActionMenu(null)
+    closeMenu()
     fetchTransacoes()
   }
 
   const handleStatusChange = async (id: string, novoStatus: string) => {
-    await fetch(`/api/transacoes/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: novoStatus,
-        data_pagamento: novoStatus === 'pago' ? new Date().toISOString().split('T')[0] : null,
-      }),
-    })
-    setActionMenu(null)
+    try {
+      const res = await fetch(`/api/transacoes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: novoStatus,
+          data_pagamento: novoStatus === 'pago' ? new Date().toISOString().split('T')[0] : null,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || 'Erro ao alterar status')
+      }
+    } catch {
+      alert('Erro de conexão')
+    }
+    closeMenu()
     fetchTransacoes()
   }
 
@@ -281,37 +318,9 @@ export default function TransacoesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      <div className="relative">
-                        <button onClick={() => setActionMenu(actionMenu === t.id ? null : t.id)} className="p-1.5 rounded-lg hover:bg-[#2a2a3a] transition-colors">
-                          <MoreVertical className="w-4 h-4 text-gray-400" />
-                        </button>
-                        {actionMenu === t.id && (
-                          <div className="absolute right-0 top-full mt-1 w-44 bg-[#1c1c28] border border-[#2a2a3a] rounded-xl shadow-xl z-20 py-1 animate-in fade-in slide-in-from-top-1">
-                            <button onClick={() => handleEdit(t)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-[#2a2a3a] hover:text-white transition-colors">
-                              <Pencil className="w-3.5 h-3.5" /> Editar
-                            </button>
-                            {(t.status === 'pendente' || t.status === 'atrasado') && (
-                              <button onClick={() => handleStatusChange(t.id, 'pago')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-400 hover:bg-[#2a2a3a] hover:text-emerald-300 transition-colors">
-                                <ArrowUpRight className="w-3.5 h-3.5" /> Marcar Pago
-                              </button>
-                            )}
-                            {t.status === 'pago' && (
-                              <button onClick={() => handleStatusChange(t.id, 'pendente')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-yellow-400 hover:bg-[#2a2a3a] hover:text-yellow-300 transition-colors">
-                                <ArrowDownRight className="w-3.5 h-3.5" /> Voltar Pendente
-                              </button>
-                            )}
-                            {t.status !== 'cancelado' && (
-                              <button onClick={() => handleStatusChange(t.id, 'cancelado')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-orange-400 hover:bg-[#2a2a3a] hover:text-orange-300 transition-colors">
-                                <X className="w-3.5 h-3.5" /> Cancelar
-                              </button>
-                            )}
-                            <div className="border-t border-[#2a2a3a] my-1" />
-                            <button onClick={() => { setDeleteConfirm(t.id); setActionMenu(null) }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors">
-                              <Trash2 className="w-3.5 h-3.5" /> Excluir
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      <button onClick={(e) => openMenu(t, e)} className="p-1.5 rounded-lg hover:bg-[#2a2a3a] transition-colors">
+                        <MoreVertical className="w-4 h-4 text-gray-400" />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -320,6 +329,38 @@ export default function TransacoesPage() {
           </table>
         </div>
       </div>
+
+      {/* Menu de Ações (renderizado fora da tabela com fixed positioning) */}
+      {actionMenu && menuPos && menuTransaction && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={closeMenu} />
+          <div className="fixed z-50 w-48 bg-[#1c1c28] border border-[#2a2a3a] rounded-xl shadow-2xl py-1"
+            style={{ top: menuPos.top, right: menuPos.right }}>
+            <button onClick={() => handleEdit(menuTransaction)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-300 hover:bg-[#2a2a3a] hover:text-white transition-colors">
+              <Pencil className="w-3.5 h-3.5" /> Editar
+            </button>
+            {(menuTransaction.status === 'pendente' || menuTransaction.status === 'atrasado') && (
+              <button onClick={() => handleStatusChange(menuTransaction.id, 'pago')} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-emerald-400 hover:bg-[#2a2a3a] hover:text-emerald-300 transition-colors">
+                <ArrowUpRight className="w-3.5 h-3.5" /> Marcar Pago
+              </button>
+            )}
+            {menuTransaction.status === 'pago' && (
+              <button onClick={() => handleStatusChange(menuTransaction.id, 'pendente')} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-yellow-400 hover:bg-[#2a2a3a] hover:text-yellow-300 transition-colors">
+                <ArrowDownRight className="w-3.5 h-3.5" /> Voltar Pendente
+              </button>
+            )}
+            {menuTransaction.status !== 'cancelado' && (
+              <button onClick={() => handleStatusChange(menuTransaction.id, 'cancelado')} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-orange-400 hover:bg-[#2a2a3a] hover:text-orange-300 transition-colors">
+                <X className="w-3.5 h-3.5" /> Cancelar
+              </button>
+            )}
+            <div className="border-t border-[#2a2a3a] my-1" />
+            <button onClick={() => { setDeleteConfirm(menuTransaction.id); closeMenu() }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors">
+              <Trash2 className="w-3.5 h-3.5" /> Excluir
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Modal Nova Transação */}
       {showModal && (
@@ -430,6 +471,7 @@ export default function TransacoesPage() {
         </div>
       )}
 
+
       {/* Modal Confirmar Exclusão */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -450,11 +492,6 @@ export default function TransacoesPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Overlay para fechar menu de ações */}
-      {actionMenu && (
-        <div className="fixed inset-0 z-10" onClick={() => setActionMenu(null)} />
       )}
     </div>
   )
