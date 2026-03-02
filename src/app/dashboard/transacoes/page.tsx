@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard, Sparkles, AlertTriangle as AlertTriangleIcon } from 'lucide-react'
+import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard, Sparkles, AlertTriangle as AlertTriangleIcon, CheckCircle, RefreshCw } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils'
 import type { Transacao, Categoria, Franquia, ContaBancaria } from '@/types/database'
 
@@ -11,6 +11,24 @@ interface CartaoCredito {
   bandeira: string
   banco: string | null
   ultimos_digitos: string | null
+}
+
+interface TransacaoPendencia {
+  id: string
+  descricao: string
+  valor: number
+  tipo: string
+  data_vencimento: string
+  status: string
+  categoria_id: string | null
+  franquia_id: string | null
+}
+
+interface Pendencias {
+  sem_categoria: TransacaoPendencia[]
+  sem_franquia: TransacaoPendencia[]
+  sem_ambos: TransacaoPendencia[]
+  total: number
 }
 
 export default function TransacoesPage() {
@@ -29,6 +47,11 @@ export default function TransacoesPage() {
   const [filtros, setFiltros] = useState({ tipo: '', status: '', franquia_id: '', search: '' })
   const [duplicatas, setDuplicatas] = useState<{ descricao: string; ids: string[]; valor: number; datas: string[] }[]>([])
   const [duplicatasLoading, setDuplicatasLoading] = useState(false)
+  const [pendencias, setPendencias] = useState<Pendencias | null>(null)
+  const [showConfirmPessoal, setShowConfirmPessoal] = useState(false)
+  const [regularizando, setRegularizando] = useState(false)
+  const [classificandoIA, setClassificandoIA] = useState(false)
+  const [resultadoRegularizacao, setResultadoRegularizacao] = useState<string | null>(null)
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
     data_pagamento: '', status: 'pendente', categoria_id: '', conta_bancaria_id: '', franquia_id: '',
@@ -234,12 +257,14 @@ export default function TransacoesPage() {
               const res = await fetch('/api/ia/duplicatas')
               const data = await res.json()
               setDuplicatas(data.duplicatas || [])
+              setPendencias(data.pendencias || null)
+              setResultadoRegularizacao(null)
             } catch { /* ignore */ }
             finally { setDuplicatasLoading(false) }
           }} disabled={duplicatasLoading}
             className="btn-secondary flex items-center gap-2 text-sm">
             {duplicatasLoading ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
-            Duplicatas
+            Verificar Pendências
           </button>
           <button onClick={() => { resetForm(); setEditingId(null); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="w-4 h-4" /> Nova Transação
@@ -291,6 +316,143 @@ export default function TransacoesPage() {
             ))}
           </div>
           <p className="text-[10px] text-gray-600 mt-2">Revise e exclua manualmente as duplicatas se necessário</p>
+        </div>
+      )}
+
+      {/* Painel de Pendências (sem categoria/franquia) */}
+      {pendencias && pendencias.total > 0 && (
+        <div className="glass-card p-5 border border-purple-500/20 bg-gradient-to-r from-purple-500/5 to-indigo-500/5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              {pendencias.total} Transações Pendentes de Regularização
+            </h3>
+            <button onClick={() => setPendencias(null)} className="text-gray-500 hover:text-white text-xs">Fechar</button>
+          </div>
+
+          {/* Resultado da última ação */}
+          {resultadoRegularizacao && (
+            <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <p className="text-sm text-emerald-300">{resultadoRegularizacao}</p>
+            </div>
+          )}
+
+          {/* Resumo das pendências por tipo */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            {pendencias.sem_ambos.length > 0 && (
+              <div className="p-3 rounded-lg bg-[#12121a] border border-red-500/10">
+                <p className="text-xs text-red-400 font-medium mb-1">Sem Categoria + Franquia</p>
+                <p className="text-xl font-bold text-red-300">{pendencias.sem_ambos.length}</p>
+              </div>
+            )}
+            {pendencias.sem_categoria.length > 0 && (
+              <div className="p-3 rounded-lg bg-[#12121a] border border-amber-500/10">
+                <p className="text-xs text-amber-400 font-medium mb-1">Sem Categoria</p>
+                <p className="text-xl font-bold text-amber-300">{pendencias.sem_categoria.length}</p>
+              </div>
+            )}
+            {pendencias.sem_franquia.length > 0 && (
+              <div className="p-3 rounded-lg bg-[#12121a] border border-indigo-500/10">
+                <p className="text-xs text-indigo-400 font-medium mb-1">Sem Franquia</p>
+                <p className="text-xl font-bold text-indigo-300">{pendencias.sem_franquia.length}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Lista das transações pendentes (top 15) */}
+          <div className="space-y-1 mb-4 max-h-[200px] overflow-y-auto">
+            {[...pendencias.sem_ambos, ...pendencias.sem_categoria, ...pendencias.sem_franquia].slice(0, 15).map((t, i) => (
+              <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-[#12121a] border border-[#2a2a3a]">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-200 truncate">{t.descricao}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {t.tipo === 'receita' ? '↑ Receita' : '↓ Despesa'} • {formatCurrency(Number(t.valor))} • {new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 ml-2">
+                  {!t.categoria_id && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">s/ categ.</span>
+                  )}
+                  {!t.franquia_id && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">s/ franq.</span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {pendencias.total > 15 && (
+              <p className="text-[10px] text-gray-500 text-center py-1">... e mais {pendencias.total - 15} transações</p>
+            )}
+          </div>
+
+          {/* Ações em massa */}
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-[#2a2a3a]">
+            <button
+              onClick={async () => {
+                setClassificandoIA(true)
+                setResultadoRegularizacao(null)
+                try {
+                  const res = await fetch('/api/ia/regularizar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acao: 'auto_classificar' }),
+                  })
+                  const data = await res.json()
+                  if (data.sucesso) {
+                    setResultadoRegularizacao(`✨ IA classificou ${data.atualizadas} de ${data.total_analisadas} transações (categoria + franquia pelo histórico)`)
+                    // Recarregar pendências
+                    const dupRes = await fetch('/api/ia/duplicatas')
+                    const dupData = await dupRes.json()
+                    setPendencias(dupData.pendencias || null)
+                    fetchTransacoes()
+                  } else {
+                    setResultadoRegularizacao(`Erro: ${data.error || 'Falha ao classificar'}`)
+                  }
+                } catch {
+                  setResultadoRegularizacao('Erro de conexão ao classificar')
+                }
+                finally { setClassificandoIA(false) }
+              }}
+              disabled={classificandoIA || regularizando}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              {classificandoIA ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
+              Auto-classificar com IA
+            </button>
+
+            {(pendencias.sem_franquia.length > 0 || pendencias.sem_ambos.length > 0) && (
+              <button
+                onClick={() => setShowConfirmPessoal(true)}
+                disabled={classificandoIA || regularizando}
+                className="btn-secondary flex items-center gap-2 text-sm border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10"
+              >
+                <Building2 className="w-4 h-4" />
+                Mover sem franquia → Pessoal ({pendencias.sem_franquia.length + pendencias.sem_ambos.length})
+              </button>
+            )}
+
+            <button
+              onClick={async () => {
+                setDuplicatasLoading(true)
+                try {
+                  const res = await fetch('/api/ia/duplicatas')
+                  const data = await res.json()
+                  setDuplicatas(data.duplicatas || [])
+                  setPendencias(data.pendencias || null)
+                } catch { /* ignore */ }
+                finally { setDuplicatasLoading(false) }
+              }}
+              disabled={duplicatasLoading}
+              className="btn-secondary flex items-center gap-1.5 text-xs text-gray-400"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${duplicatasLoading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </button>
+          </div>
+
+          <p className="text-[10px] text-gray-600 mt-3">
+            A IA busca no histórico de transações similares para inferir categoria e franquia. Transações sem match serão classificadas por keywords ou OpenAI (se configurada).
+          </p>
         </div>
       )}
 
@@ -518,6 +680,74 @@ export default function TransacoesPage() {
         </div>
       )}
 
+
+      {/* Modal Confirmar Franquia Pessoal */}
+      {showConfirmPessoal && pendencias && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowConfirmPessoal(false)} />
+          <div className="relative w-full max-w-md glass-card p-6">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center">
+                <Building2 className="w-6 h-6 text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white mb-1">Atribuir Franquia &quot;Pessoal&quot;</h3>
+                <p className="text-sm text-gray-400 mb-3">
+                  Tem certeza que deseja mover <strong className="text-white">{pendencias.sem_franquia.length + pendencias.sem_ambos.length}</strong> transações sem franquia para a franquia <strong className="text-indigo-400">&quot;Pessoal&quot;</strong>?
+                </p>
+                <div className="text-xs text-gray-500 bg-[#12121a] p-3 rounded-lg text-left max-h-[150px] overflow-y-auto space-y-1">
+                  {[...pendencias.sem_ambos, ...pendencias.sem_franquia].slice(0, 10).map((t, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="truncate mr-2">{t.descricao}</span>
+                      <span className="text-gray-400 flex-shrink-0">{formatCurrency(Number(t.valor))}</span>
+                    </div>
+                  ))}
+                  {pendencias.sem_franquia.length + pendencias.sem_ambos.length > 10 && (
+                    <p className="text-gray-600 text-center">... e mais {pendencias.sem_franquia.length + pendencias.sem_ambos.length - 10}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-3 w-full">
+                <button onClick={() => setShowConfirmPessoal(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button
+                  onClick={async () => {
+                    setRegularizando(true)
+                    setResultadoRegularizacao(null)
+                    try {
+                      const ids = [...pendencias.sem_ambos, ...pendencias.sem_franquia].map(t => t.id)
+                      const res = await fetch('/api/ia/regularizar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ acao: 'franquia_pessoal', ids }),
+                      })
+                      const data = await res.json()
+                      if (data.sucesso) {
+                        setResultadoRegularizacao(`✅ ${data.atualizadas} transações movidas para franquia "Pessoal"`)
+                        setShowConfirmPessoal(false)
+                        // Recarregar pendências
+                        const dupRes = await fetch('/api/ia/duplicatas')
+                        const dupData = await dupRes.json()
+                        setPendencias(dupData.pendencias || null)
+                        fetchTransacoes()
+                      } else {
+                        setResultadoRegularizacao(`Erro: ${data.error || 'Falha ao regularizar'}`)
+                      }
+                    } catch {
+                      setResultadoRegularizacao('Erro de conexão ao regularizar')
+                    }
+                    finally { setRegularizando(false) }
+                  }}
+                  disabled={regularizando}
+                  className="flex-1 text-sm px-4 py-2 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-500/30 transition-colors font-medium flex items-center justify-center gap-2"
+                >
+                  {regularizando ? <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Confirmar Exclusão */}
       {deleteConfirm && (

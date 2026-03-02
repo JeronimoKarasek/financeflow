@@ -1,5 +1,5 @@
 // ============================================================
-// API IA - Detecção de Duplicatas/Anomalias
+// API IA - Detecção de Duplicatas + Pendências
 // ============================================================
 import { NextResponse } from 'next/server'
 import { detectarDuplicatas } from '@/lib/ai-engine'
@@ -11,7 +11,8 @@ export async function GET() {
     const result = await detectarDuplicatas()
     return NextResponse.json({
       duplicatas: result.grupos,
-      total: result.grupos.length,
+      total_duplicatas: result.grupos.length,
+      pendencias: result.pendencias,
       mensagem: result.grupos.length > 0
         ? `Encontradas ${result.grupos.length} possíveis duplicatas nos últimos 30 dias`
         : 'Nenhuma duplicata encontrada nos últimos 30 dias',

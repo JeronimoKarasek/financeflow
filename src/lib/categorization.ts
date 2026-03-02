@@ -13,10 +13,17 @@ export interface CategoriaInfo {
   tipo: 'receita' | 'despesa'
 }
 
+export interface FranquiaInfo {
+  id: string
+  nome: string
+}
+
 export interface CategorizacaoResult {
   descricao: string
   categoria_id: string | null
   categoria_nome: string | null
+  franquia_id: string | null
+  franquia_nome: string | null
   confianca: number // 0 a 1
   metodo: 'historico' | 'keywords' | 'openai' | 'nenhum'
 }
@@ -277,79 +284,122 @@ function normalizar(texto: string): string {
 
 // ============================================================
 // CAMADA 1: Buscar no histórico de transações já categorizadas
+// Agora busca CATEGORIA e FRANQUIA pelo histórico
 // ============================================================
 export async function categorizarPorHistorico(
   descricoes: string[],
   categorias: CategoriaInfo[],
-  supabase: ReturnType<typeof import('@/lib/supabase').createServerSupabase>
+  supabase: ReturnType<typeof import('@/lib/supabase').createServerSupabase>,
+  franquias?: FranquiaInfo[]
 ): Promise<Map<string, CategorizacaoResult>> {
   const resultados = new Map<string, CategorizacaoResult>()
 
-  // Buscar transações já categorizadas (com categoria definida)
+  // Buscar transações já categorizadas E/OU com franquia definida
   const { data: historico } = await supabase
     .from('_financeiro_transacoes')
-    .select('descricao, categoria_id')
-    .not('categoria_id', 'is', null)
+    .select('descricao, categoria_id, franquia_id')
+    .or('categoria_id.not.is.null,franquia_id.not.is.null')
     .order('created_at', { ascending: false })
-    .limit(5000) as { data: { descricao: string; categoria_id: string }[] | null }
+    .limit(5000) as { data: { descricao: string; categoria_id: string | null; franquia_id: string | null }[] | null }
 
   if (!historico || historico.length === 0) return resultados
 
-  // Criar mapa de descrição normalizada → categoria mais frequente
+  // Criar mapa de descrição normalizada → categoria e franquia mais frequentes
   const descCategCount: Record<string, Record<string, number>> = {}
+  const descFranqCount: Record<string, Record<string, number>> = {}
+
   for (const t of historico) {
     const norm = normalizar(t.descricao)
-    if (!descCategCount[norm]) descCategCount[norm] = {}
-    descCategCount[norm][t.categoria_id] = (descCategCount[norm][t.categoria_id] || 0) + 1
+    if (t.categoria_id) {
+      if (!descCategCount[norm]) descCategCount[norm] = {}
+      descCategCount[norm][t.categoria_id] = (descCategCount[norm][t.categoria_id] || 0) + 1
+    }
+    if (t.franquia_id) {
+      if (!descFranqCount[norm]) descFranqCount[norm] = {}
+      descFranqCount[norm][t.franquia_id] = (descFranqCount[norm][t.franquia_id] || 0) + 1
+    }
   }
 
-  // Para cada descrição nova, buscar match por similaridade
   const categMap = new Map(categorias.map(c => [c.id, c]))
+  const franqMap = franquias ? new Map(franquias.map(f => [f.id, f])) : new Map<string, FranquiaInfo>()
+
+  // Helper: buscar melhor franquia para uma descrição normalizada
+  const buscarFranquia = (norm: string): { id: string; nome: string } | null => {
+    // Match exato
+    if (descFranqCount[norm]) {
+      const counts = descFranqCount[norm]
+      const melhorFranqId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+      const franq = franqMap.get(melhorFranqId)
+      if (franq) return franq
+    }
+    // Match parcial
+    let melhorMatch: { franqId: string; score: number } | null = null
+    for (const [histNorm, counts] of Object.entries(descFranqCount)) {
+      const score = calcularSimilaridade(norm, histNorm)
+      if (score >= 0.7 && (!melhorMatch || score > melhorMatch.score)) {
+        const melhorFranqId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+        melhorMatch = { franqId: melhorFranqId, score }
+      }
+    }
+    if (melhorMatch) {
+      const franq = franqMap.get(melhorMatch.franqId)
+      if (franq) return franq
+    }
+    return null
+  }
 
   for (const desc of descricoes) {
     const norm = normalizar(desc)
 
+    let catResult: { id: string; nome: string } | null = null
+    let franqResult: { id: string; nome: string } | null = null
+    let confianca = 0
+
+    // --- Categoria pelo histórico ---
     // Match exato
     if (descCategCount[norm]) {
       const counts = descCategCount[norm]
       const melhorCatId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
       const cat = categMap.get(melhorCatId)
       if (cat) {
-        resultados.set(desc, {
-          descricao: desc,
-          categoria_id: cat.id,
-          categoria_nome: cat.nome,
-          confianca: 0.95,
-          metodo: 'historico',
-        })
-        continue
+        catResult = { id: cat.id, nome: cat.nome }
+        confianca = 0.95
       }
     }
 
-    // Match parcial: verificar se a descrição contém uma descrição histórica
-    // ou se uma descrição histórica contém a nova (similaridade por substring)
-    let melhorMatch: { catId: string; score: number } | null = null
-
-    for (const [histNorm, counts] of Object.entries(descCategCount)) {
-      // Calcular similaridade simples
-      const score = calcularSimilaridade(norm, histNorm)
-      if (score >= 0.7 && (!melhorMatch || score > melhorMatch.score)) {
-        const melhorCatId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
-        melhorMatch = { catId: melhorCatId, score }
+    // Match parcial para categoria
+    if (!catResult) {
+      let melhorMatch: { catId: string; score: number } | null = null
+      for (const [histNorm, counts] of Object.entries(descCategCount)) {
+        const score = calcularSimilaridade(norm, histNorm)
+        if (score >= 0.7 && (!melhorMatch || score > melhorMatch.score)) {
+          const melhorCatId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+          melhorMatch = { catId: melhorCatId, score }
+        }
+      }
+      if (melhorMatch) {
+        const cat = categMap.get(melhorMatch.catId)
+        if (cat) {
+          catResult = { id: cat.id, nome: cat.nome }
+          confianca = melhorMatch.score * 0.9
+        }
       }
     }
 
-    if (melhorMatch) {
-      const cat = categMap.get(melhorMatch.catId)
-      if (cat) {
-        resultados.set(desc, {
-          descricao: desc,
-          categoria_id: cat.id,
-          categoria_nome: cat.nome,
-          confianca: melhorMatch.score * 0.9,
-          metodo: 'historico',
-        })
-      }
+    // --- Franquia pelo histórico ---
+    franqResult = buscarFranquia(norm)
+
+    // Se encontrou pelo menos categoria OU franquia, registrar resultado
+    if (catResult || franqResult) {
+      resultados.set(desc, {
+        descricao: desc,
+        categoria_id: catResult?.id || null,
+        categoria_nome: catResult?.nome || null,
+        franquia_id: franqResult?.id || null,
+        franquia_nome: franqResult?.nome || null,
+        confianca: confianca || (franqResult ? 0.85 : 0),
+        metodo: 'historico',
+      })
     }
   }
 
@@ -440,6 +490,8 @@ export function categorizarPorKeywords(
         descricao: desc,
         categoria_id: melhorMatch.categ.id,
         categoria_nome: melhorMatch.categ.nome,
+        franquia_id: null,
+        franquia_nome: null,
         confianca,
         metodo: 'keywords',
       })
@@ -548,6 +600,8 @@ Exemplo de resposta:
               descricao: descOriginal,
               categoria_id: catMatch.id,
               categoria_nome: catMatch.nome,
+              franquia_id: null,
+              franquia_nome: null,
               confianca: Math.min(item.confianca || 0.75, 0.9),
               metodo: 'openai',
             })
@@ -571,33 +625,40 @@ export async function categorizarTransacoes(
   descricoes: string[],
   categorias: CategoriaInfo[],
   supabase: ReturnType<typeof import('@/lib/supabase').createServerSupabase>,
-  openaiApiKey?: string | null
+  openaiApiKey?: string | null,
+  franquias?: FranquiaInfo[]
 ): Promise<CategorizacaoResult[]> {
   if (descricoes.length === 0 || categorias.length === 0) return []
 
   const resultados: Map<string, CategorizacaoResult> = new Map()
   const naoClassificadas: string[] = []
 
-  // ---- CAMADA 1: Histórico ----
-  const historicoResults = await categorizarPorHistorico(descricoes, categorias, supabase)
+  // ---- CAMADA 1: Histórico (busca categoria + franquia) ----
+  const historicoResults = await categorizarPorHistorico(descricoes, categorias, supabase, franquias)
   for (const [desc, result] of historicoResults) {
     resultados.set(desc, result)
   }
 
-  // Identificar não classificadas
-  const semHistorico = descricoes.filter(d => !resultados.has(d))
+  // Identificar não classificadas (sem categoria)
+  const semHistorico = descricoes.filter(d => !resultados.has(d) || !resultados.get(d)!.categoria_id)
 
   // ---- CAMADA 2: Keywords ----
   if (semHistorico.length > 0) {
     const keywordResults = categorizarPorKeywords(semHistorico, categorias)
     for (const [desc, result] of keywordResults) {
+      const existing = resultados.get(desc)
+      // Se o histórico já achou franquia mas não categoria, mesclar
+      if (existing?.franquia_id && !existing.categoria_id) {
+        result.franquia_id = existing.franquia_id
+        result.franquia_nome = existing.franquia_nome
+      }
       resultados.set(desc, result)
     }
   }
 
   // Identificar as que ainda não foram classificadas
   for (const desc of descricoes) {
-    if (!resultados.has(desc)) {
+    if (!resultados.has(desc) || !resultados.get(desc)!.categoria_id) {
       naoClassificadas.push(desc)
     }
   }
@@ -606,6 +667,12 @@ export async function categorizarTransacoes(
   if (naoClassificadas.length > 0 && openaiApiKey) {
     const openaiResults = await categorizarPorOpenAI(naoClassificadas, categorias, openaiApiKey)
     for (const [desc, result] of openaiResults) {
+      const existing = resultados.get(desc)
+      // Mesclar franquia do histórico se existir
+      if (existing?.franquia_id) {
+        result.franquia_id = existing.franquia_id
+        result.franquia_nome = existing.franquia_nome
+      }
       resultados.set(desc, result)
     }
   }
@@ -616,6 +683,8 @@ export async function categorizarTransacoes(
       descricao: desc,
       categoria_id: null,
       categoria_nome: null,
+      franquia_id: null,
+      franquia_nome: null,
       confianca: 0,
       metodo: 'nenhum' as const,
     }

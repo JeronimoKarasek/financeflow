@@ -3,6 +3,18 @@
 -- Execute no Supabase SQL Editor
 -- ============================================================
 
+-- 0) IMPORTANTE: Adicionar 'openai' ao CHECK constraint da coluna provedor
+ALTER TABLE _financeiro_integracoes DROP CONSTRAINT IF EXISTS _financeiro_integracoes_provedor_check;
+ALTER TABLE _financeiro_integracoes ADD CONSTRAINT _financeiro_integracoes_provedor_check 
+  CHECK (provedor IN (
+    'asaas', 'stripe', 'mercado_pago', 'hotmart', 
+    'evolution_api', 'banco_do_brasil', 'itau', 'bradesco', 
+    'santander', 'nubank', 'inter', 'sicoob', 'caixa',
+    'c6bank', 'safra', 'btg', 'stone', 'pagseguro', 'cielo',
+    'openai',
+    'outro'
+  ));
+
 -- 1) Tabela para log de conversas do consultor IA WhatsApp
 CREATE TABLE IF NOT EXISTS _financeiro_ia_conversas (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

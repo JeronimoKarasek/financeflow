@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS _financeiro_integracoes (
     'evolution_api', 'banco_do_brasil', 'itau', 'bradesco', 
     'santander', 'nubank', 'inter', 'sicoob', 'caixa',
     'c6bank', 'safra', 'btg', 'stone', 'pagseguro', 'cielo',
+    'openai',
     'outro'
   )),
   api_key TEXT,

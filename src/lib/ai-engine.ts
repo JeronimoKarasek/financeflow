@@ -451,60 +451,116 @@ Base suas sugestões nos gastos reais dos últimos 3 meses. Aplique margem de se
 // ============================================================
 // DETECÇÃO DE DUPLICATAS: Encontrar transações possivelmente duplicadas
 // ============================================================
-export async function detectarDuplicatas(): Promise<{ grupos: { descricao: string; ids: string[]; valor: number; datas: string[] }[] }> {
+// ============================================================
+// DETECÇÃO DE DUPLICATAS + PENDÊNCIAS (sem categoria/franquia)
+// ============================================================
+
+interface TransacaoPendencia {
+  id: string
+  descricao: string
+  valor: number
+  tipo: string
+  data_vencimento: string
+  status: string
+  categoria_id: string | null
+  franquia_id: string | null
+}
+
+export async function detectarDuplicatas(): Promise<{
+  grupos: { descricao: string; ids: string[]; valor: number; datas: string[] }[]
+  pendencias: {
+    sem_categoria: TransacaoPendencia[]
+    sem_franquia: TransacaoPendencia[]
+    sem_ambos: TransacaoPendencia[]
+    total: number
+  }
+}> {
   const supabase = createServerSupabase()
   const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
+  // Buscar transações recentes para duplicatas
   const { data: transacoes } = await supabase
     .from('_financeiro_transacoes')
-    .select('id, descricao, valor, data_vencimento, tipo, status')
+    .select('id, descricao, valor, data_vencimento, tipo, status, categoria_id, franquia_id')
     .gte('data_vencimento', trintaDiasAtras)
     .neq('status', 'cancelado')
-    .order('data_vencimento', { ascending: false }) as { data: { id: string; descricao: string; valor: number; data_vencimento: string; tipo: string; status: string }[] | null }
+    .order('data_vencimento', { ascending: false }) as { data: TransacaoPendencia[] | null }
 
-  if (!transacoes || transacoes.length === 0) return { grupos: [] }
+  // Buscar TODAS transações com pendências (sem limite de 30 dias)
+  const { data: pendentes } = await supabase
+    .from('_financeiro_transacoes')
+    .select('id, descricao, valor, data_vencimento, tipo, status, categoria_id, franquia_id')
+    .neq('status', 'cancelado')
+    .or('categoria_id.is.null,franquia_id.is.null')
+    .order('data_vencimento', { ascending: false })
+    .limit(500) as { data: TransacaoPendencia[] | null }
 
-  // Normalizar descrição para comparação
-  const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, '').trim()
-
-  // Agrupar por valor + descrição similar
+  // --- DUPLICATAS ---
   const grupos: Map<string, { descricao: string; ids: string[]; valor: number; datas: string[] }> = new Map()
 
-  for (let i = 0; i < transacoes.length; i++) {
-    const t1 = transacoes[i]
-    const norm1 = normalizar(t1.descricao)
+  if (transacoes && transacoes.length > 0) {
+    const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, '').trim()
 
-    for (let j = i + 1; j < transacoes.length; j++) {
-      const t2 = transacoes[j]
-      if (Math.abs(Number(t1.valor) - Number(t2.valor)) > 0.01) continue // valor diferente
-      if (t1.tipo !== t2.tipo) continue // tipo diferente
+    for (let i = 0; i < transacoes.length; i++) {
+      const t1 = transacoes[i]
+      const norm1 = normalizar(t1.descricao)
 
-      const norm2 = normalizar(t2.descricao)
+      for (let j = i + 1; j < transacoes.length; j++) {
+        const t2 = transacoes[j]
+        if (Math.abs(Number(t1.valor) - Number(t2.valor)) > 0.01) continue
+        if (t1.tipo !== t2.tipo) continue
 
-      // Verificar similaridade
-      const similar = norm1 === norm2 ||
-        norm1.includes(norm2) || norm2.includes(norm1) ||
-        calcSimilaridade(norm1, norm2) >= 0.7
+        const norm2 = normalizar(t2.descricao)
+        const similar = norm1 === norm2 ||
+          norm1.includes(norm2) || norm2.includes(norm1) ||
+          calcSimilaridade(norm1, norm2) >= 0.7
 
-      if (!similar) continue
+        if (!similar) continue
 
-      // Verificar se datas são próximas (máximo 5 dias)
-      const diff = Math.abs(new Date(t1.data_vencimento).getTime() - new Date(t2.data_vencimento).getTime()) / (1000 * 60 * 60 * 24)
-      if (diff > 5) continue
+        const diff = Math.abs(new Date(t1.data_vencimento).getTime() - new Date(t2.data_vencimento).getTime()) / (1000 * 60 * 60 * 24)
+        if (diff > 5) continue
 
-      const key = `${norm1}_${Number(t1.valor).toFixed(2)}`
-      if (!grupos.has(key)) {
-        grupos.set(key, { descricao: t1.descricao, ids: [t1.id], valor: Number(t1.valor), datas: [t1.data_vencimento] })
-      }
-      const grupo = grupos.get(key)!
-      if (!grupo.ids.includes(t2.id)) {
-        grupo.ids.push(t2.id)
-        grupo.datas.push(t2.data_vencimento)
+        const key = `${norm1}_${Number(t1.valor).toFixed(2)}`
+        if (!grupos.has(key)) {
+          grupos.set(key, { descricao: t1.descricao, ids: [t1.id], valor: Number(t1.valor), datas: [t1.data_vencimento] })
+        }
+        const grupo = grupos.get(key)!
+        if (!grupo.ids.includes(t2.id)) {
+          grupo.ids.push(t2.id)
+          grupo.datas.push(t2.data_vencimento)
+        }
       }
     }
   }
 
-  return { grupos: Array.from(grupos.values()).filter(g => g.ids.length > 1) }
+  // --- PENDÊNCIAS: separar por tipo ---
+  const sem_categoria: TransacaoPendencia[] = []
+  const sem_franquia: TransacaoPendencia[] = []
+  const sem_ambos: TransacaoPendencia[] = []
+
+  if (pendentes) {
+    for (const t of pendentes) {
+      const semCat = !t.categoria_id
+      const semFranq = !t.franquia_id
+      if (semCat && semFranq) {
+        sem_ambos.push(t)
+      } else if (semCat) {
+        sem_categoria.push(t)
+      } else if (semFranq) {
+        sem_franquia.push(t)
+      }
+    }
+  }
+
+  return {
+    grupos: Array.from(grupos.values()).filter(g => g.ids.length > 1),
+    pendencias: {
+      sem_categoria,
+      sem_franquia,
+      sem_ambos,
+      total: sem_categoria.length + sem_franquia.length + sem_ambos.length,
+    },
+  }
 }
 
 function calcSimilaridade(a: string, b: string): number {
