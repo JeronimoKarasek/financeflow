@@ -54,6 +54,20 @@ export async function POST() {
       return NextResponse.json({ message: 'Nenhuma cobrança para notificar', enviados: 0 })
     }
 
+    // Buscar número do WhatsApp configurado pelo administrador (para cobranças 'pagar')
+    let numeroAdmin: string | null = null
+    try {
+      const { data: prefs } = await supabase
+        .from('_financeiro_preferencias_notificacao')
+        .select('numero_whatsapp')
+        .not('numero_whatsapp', 'is', null)
+        .limit(1)
+        .single()
+      if (prefs?.numero_whatsapp) {
+        numeroAdmin = prefs.numero_whatsapp
+      }
+    } catch { /* sem número configurado */ }
+
     let enviados = 0
     const erros: string[] = []
 
@@ -95,7 +109,13 @@ export async function POST() {
       }
 
       try {
-        let numero = (cobranca.telefone_contato || '').replace(/\D/g, '')
+        // Para cobranças 'pagar', enviar para o número do admin configurado
+        // Para cobranças 'receber', enviar para o contato da cobrança
+        const telefoneDestino = cobranca.tipo === 'pagar' && numeroAdmin
+          ? numeroAdmin
+          : cobranca.telefone_contato || ''
+        
+        let numero = telefoneDestino.replace(/\D/g, '')
         if (numero.length === 11 || numero.length === 10) numero = '55' + numero
         if (!numero.startsWith('55')) numero = '55' + numero
 

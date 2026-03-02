@@ -85,9 +85,23 @@ export async function GET(request: Request) {
       return { provedor: integ.provedor, credenciais, ativa: integ.ativa }
     })
 
+    // Buscar preferências de notificação
+    let notificacoesData = null
+    try {
+      const { data: prefs } = await supabase
+        .from('_financeiro_preferencias_notificacao')
+        .select('*')
+        .eq('usuario_id', user.id)
+        .single()
+      if (prefs) {
+        notificacoesData = prefs
+      }
+    } catch { /* tabela pode não existir ainda */ }
+
     return NextResponse.json({
       perfil: usuario,
       integracoes: integracoesFormatadas,
+      notificacoes: notificacoesData,
     })
   } catch {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
@@ -227,7 +241,7 @@ export async function PUT(request: Request) {
     }
 
     if (tipo === 'notificacoes') {
-      const { whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio } = body
+      const { whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio, numero_whatsapp } = body
 
       // Salvar na tabela de preferências de notificação (upsert)
       const { data: existing } = await supabase
@@ -236,7 +250,7 @@ export async function PUT(request: Request) {
         .eq('usuario_id', user.id)
         .single()
 
-      const prefData = { usuario_id: user.id, whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio }
+      const prefData = { usuario_id: user.id, whatsapp_ativo, dias_antes_vencimento, notificar_atraso, notificar_recebimento, horario_envio, numero_whatsapp: numero_whatsapp || null }
 
       if (existing) {
         await supabase.from('_financeiro_preferencias_notificacao').update(prefData).eq('id', existing.id)

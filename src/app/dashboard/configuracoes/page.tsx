@@ -29,7 +29,7 @@ export default function ConfiguracoesPage() {
   const [notificacoes, setNotificacoes] = useState({
     whatsapp_ativo: true, dias_antes_vencimento: 3,
     notificar_atraso: true, notificar_recebimento: false,
-    horario_envio: '09:00',
+    horario_envio: '09:00', numero_whatsapp: '',
   })
 
   const sections: ConfigSection[] = [
@@ -55,6 +55,18 @@ export default function ConfiguracoesPage() {
             email: data.perfil.email || '',
             telefone: data.perfil.telefone || '',
           })
+        }
+        // Preencher notificações salvas
+        if (data.notificacoes) {
+          setNotificacoes(prev => ({
+            ...prev,
+            whatsapp_ativo: data.notificacoes.whatsapp_ativo ?? true,
+            dias_antes_vencimento: data.notificacoes.dias_antes_vencimento ?? 3,
+            notificar_atraso: data.notificacoes.notificar_atraso ?? true,
+            notificar_recebimento: data.notificacoes.notificar_recebimento ?? false,
+            horario_envio: data.notificacoes.horario_envio || '09:00',
+            numero_whatsapp: data.notificacoes.numero_whatsapp || '',
+          }))
         }
         // Preencher APIs das integrações salvas
         if (data.integracoes && Array.isArray(data.integracoes)) {
@@ -392,6 +404,24 @@ export default function ConfiguracoesPage() {
             <div className="glass-card p-6 space-y-5">
               <h3 className="text-lg font-semibold text-white">Preferências de Notificação</h3>
               <div className="space-y-4">
+                {/* Número do WhatsApp */}
+                <div className="p-4 rounded-lg bg-[#1c1c28] border border-emerald-500/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">📱</span>
+                    <div>
+                      <p className="text-sm font-medium text-white">Seu número do WhatsApp</p>
+                      <p className="text-xs text-gray-500">As notificações serão enviadas para este número</p>
+                    </div>
+                  </div>
+                  <input 
+                    value={notificacoes.numero_whatsapp} 
+                    onChange={e => setNotificacoes({...notificacoes, numero_whatsapp: e.target.value.replace(/[^\d()+\-\s]/g, '')})}
+                    placeholder="(41) 99999-9999" 
+                    className="w-full px-3 py-2.5 text-sm rounded-lg bg-[#0d0d14] border border-[#2a2a3a] text-white placeholder-gray-600 focus:border-emerald-500/50 focus:outline-none transition-colors" 
+                  />
+                  <p className="text-[10px] text-gray-600 mt-1.5">Formato: DDD + número. Ex: 41999999999</p>
+                </div>
+
                 <div className="flex items-center justify-between p-3 rounded-lg bg-[#1c1c28]">
                   <div>
                     <p className="text-sm text-white">WhatsApp Ativo</p>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, CreditCard, X, Pencil, Trash2, Eye, Calendar, DollarSign, Building2, ChevronRight } from 'lucide-react'
+import { Plus, CreditCard, X, Pencil, Trash2, Eye, ChevronRight, Lock, Unlock, CheckCircle, AlertCircle, Banknote } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 interface CartaoCredito {
@@ -28,13 +28,17 @@ interface ContaBancaria {
   banco: string | null
 }
 
-interface FaturaResumo {
+interface FaturaInfo {
+  id: string
   cartao_credito_id: string
   mes_referencia: number
   ano_referencia: number
   valor_total: number
-  status: string
+  valor_pago: number
+  status: 'aberta' | 'fechada' | 'paga' | 'parcial'
   data_vencimento: string
+  data_fechamento: string
+  transacao_pagamento_id: string | null
 }
 
 interface Transacao {
@@ -43,6 +47,7 @@ interface Transacao {
   valor: number
   data_vencimento: string
   tipo: string
+  status: string
   _financeiro_categorias?: { nome: string; cor: string; icone: string } | null
 }
 
@@ -77,7 +82,10 @@ export default function CartoesPage() {
   const [selectedCartao, setSelectedCartao] = useState<string | null>(null)
   const [faturaTransacoes, setFaturaTransacoes] = useState<Transacao[]>([])
   const [faturaTotal, setFaturaTotal] = useState(0)
+  const [faturaInfo, setFaturaInfo] = useState<FaturaInfo | null>(null)
   const [faturaLoading, setFaturaLoading] = useState(false)
+  const [faturaActionLoading, setFaturaActionLoading] = useState(false)
+  const [faturaMessage, setFaturaMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [faturaMes, setFaturaMes] = useState(new Date().getMonth() + 1)
   const [faturaAno, setFaturaAno] = useState(new Date().getFullYear())
   const [submitting, setSubmitting] = useState(false)
@@ -113,6 +121,7 @@ export default function CartoesPage() {
 
   const fetchFatura = async (cartaoId: string, mes: number, ano: number) => {
     setFaturaLoading(true)
+    setFaturaMessage(null)
     try {
       const res = await fetch('/api/cartoes/faturas', {
         method: 'POST',
@@ -122,11 +131,56 @@ export default function CartoesPage() {
       const data = await res.json()
       setFaturaTransacoes(data.transacoes || [])
       setFaturaTotal(data.total || 0)
+      setFaturaInfo(data.fatura || null)
     } catch {
       setFaturaTransacoes([])
       setFaturaTotal(0)
+      setFaturaInfo(null)
     }
     finally { setFaturaLoading(false) }
+  }
+
+  const handleFaturaAction = async (acao: 'fechar' | 'pagar' | 'reabrir') => {
+    if (!selectedCartao) return
+    setFaturaActionLoading(true)
+    setFaturaMessage(null)
+    try {
+      const cartao = cartoes.find(c => c.id === selectedCartao)
+      const res = await fetch('/api/cartoes/faturas', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cartao_id: selectedCartao,
+          mes: faturaMes,
+          ano: faturaAno,
+          acao,
+          conta_bancaria_id: cartao?.conta_bancaria_id || null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setFaturaMessage({ type: 'error', text: data.error || 'Erro ao processar fatura' })
+      } else {
+        setFaturaMessage({ type: 'success', text: data.message })
+        setFaturaInfo(data.fatura || null)
+        // Recarregar dados
+        fetchFatura(selectedCartao, faturaMes, faturaAno)
+        fetchCartoes()
+      }
+    } catch {
+      setFaturaMessage({ type: 'error', text: 'Erro de conexão. Tente novamente.' })
+    }
+    setFaturaActionLoading(false)
+  }
+
+  const getFaturaStatusConfig = (status: string) => {
+    const configs: Record<string, { label: string; color: string; bgColor: string; borderColor: string; icon: typeof CheckCircle }> = {
+      aberta: { label: 'Aberta', color: 'text-amber-400', bgColor: 'bg-amber-400/10', borderColor: 'border-amber-400/20', icon: Unlock },
+      fechada: { label: 'Fechada', color: 'text-orange-400', bgColor: 'bg-orange-400/10', borderColor: 'border-orange-400/20', icon: Lock },
+      paga: { label: 'Paga', color: 'text-emerald-400', bgColor: 'bg-emerald-400/10', borderColor: 'border-emerald-400/20', icon: CheckCircle },
+      parcial: { label: 'Parcial', color: 'text-blue-400', bgColor: 'bg-blue-400/10', borderColor: 'border-blue-400/20', icon: AlertCircle },
+    }
+    return configs[status] || configs.aberta
   }
 
   const resetForm = () => setForm({
@@ -337,7 +391,7 @@ export default function CartoesPage() {
                 <h2 className="text-lg font-bold text-white">Fatura do Cartão</h2>
                 <p className="text-sm text-gray-400">{cartoes.find(c => c.id === selectedCartao)?.nome}</p>
               </div>
-              <button onClick={() => setSelectedCartao(null)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <button onClick={() => { setSelectedCartao(null); setFaturaMessage(null) }} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
 
             {/* Navegação de meses */}
@@ -357,11 +411,108 @@ export default function CartoesPage() {
               }} className="text-gray-400 hover:text-white p-1"><ChevronRight className="w-5 h-5" /></button>
             </div>
 
-            {/* Total da fatura */}
-            <div className="glass-card p-4 border border-red-500/20 mb-4">
-              <p className="text-xs text-gray-500 mb-1">Total da Fatura</p>
-              <p className="text-2xl font-bold text-red-400">{formatCurrency(faturaTotal)}</p>
+            {/* Mensagem de feedback */}
+            {faturaMessage && (
+              <div className={`p-3 rounded-lg mb-4 text-sm flex items-center gap-2 ${
+                faturaMessage.type === 'success' 
+                  ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
+                  : 'bg-red-500/10 border border-red-500/20 text-red-400'
+              }`}>
+                {faturaMessage.type === 'success' ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                {faturaMessage.text}
+              </div>
+            )}
+
+            {/* Status + Total da fatura */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="glass-card p-4 border border-red-500/20">
+                <p className="text-xs text-gray-500 mb-1">Total da Fatura</p>
+                <p className="text-2xl font-bold text-red-400">{formatCurrency(faturaTotal)}</p>
+                {faturaInfo?.data_vencimento && (
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Vencimento: {new Date(faturaInfo.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                  </p>
+                )}
+              </div>
+              <div className={`glass-card p-4 border ${faturaInfo ? getFaturaStatusConfig(faturaInfo.status).borderColor : 'border-gray-500/20'}`}>
+                <p className="text-xs text-gray-500 mb-1">Status da Fatura</p>
+                {faturaInfo ? (() => {
+                  const cfg = getFaturaStatusConfig(faturaInfo.status)
+                  const StatusIcon = cfg.icon
+                  return (
+                    <div className="flex items-center gap-2">
+                      <StatusIcon className={`w-5 h-5 ${cfg.color}`} />
+                      <span className={`text-xl font-bold ${cfg.color}`}>{cfg.label}</span>
+                    </div>
+                  )
+                })() : (
+                  <span className="text-xl font-bold text-gray-500">-</span>
+                )}
+                {faturaInfo?.status === 'fechada' && (
+                  <p className="text-[10px] text-orange-400 mt-1">Despesa pendente criada automaticamente</p>
+                )}
+                {faturaInfo?.status === 'paga' && (
+                  <p className="text-[10px] text-emerald-400 mt-1">Valor debitado da conta vinculada</p>
+                )}
+              </div>
             </div>
+
+            {/* Botões de ação da fatura */}
+            {!faturaLoading && faturaTotal > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {/* Fechar Fatura */}
+                {(!faturaInfo || faturaInfo.status === 'aberta') && (
+                  <button
+                    onClick={() => handleFaturaAction('fechar')}
+                    disabled={faturaActionLoading}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-50"
+                  >
+                    <Lock className="w-4 h-4" />
+                    {faturaActionLoading ? 'Processando...' : 'Fechar Fatura'}
+                  </button>
+                )}
+
+                {/* Pagar Fatura */}
+                {faturaInfo?.status === 'fechada' && (
+                  <button
+                    onClick={() => handleFaturaAction('pagar')}
+                    disabled={faturaActionLoading}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+                  >
+                    <Banknote className="w-4 h-4" />
+                    {faturaActionLoading ? 'Processando...' : 'Pagar Fatura'}
+                  </button>
+                )}
+
+                {/* Reabrir Fatura */}
+                {faturaInfo?.status === 'fechada' && (
+                  <button
+                    onClick={() => handleFaturaAction('reabrir')}
+                    disabled={faturaActionLoading}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-500/10 text-gray-400 border border-gray-500/20 hover:bg-gray-500/20 transition-colors disabled:opacity-50"
+                  >
+                    <Unlock className="w-4 h-4" />
+                    {faturaActionLoading ? 'Processando...' : 'Reabrir'}
+                  </button>
+                )}
+
+                {/* Status Paga */}
+                {faturaInfo?.status === 'paga' && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle className="w-4 h-4" />
+                    Fatura Paga
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Aviso se cartão sem conta vinculada */}
+            {faturaInfo?.status === 'fechada' && !cartoes.find(c => c.id === selectedCartao)?.conta_bancaria_id && (
+              <div className="p-3 rounded-lg mb-4 bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                Vincule uma conta bancária ao cartão para poder pagar a fatura.
+              </div>
+            )}
 
             {/* Lista de gastos */}
             {faturaLoading ? (
@@ -370,13 +521,20 @@ export default function CartoesPage() {
               <p className="text-center text-gray-500 py-8">Nenhum gasto nesta fatura</p>
             ) : (
               <div className="space-y-2">
+                <div className="flex items-center justify-between px-4 py-2">
+                  <span className="text-xs text-gray-500 font-medium">{faturaTransacoes.length} lançamento{faturaTransacoes.length > 1 ? 's' : ''}</span>
+                  <span className="text-xs text-gray-500">{faturaInfo?.data_fechamento ? `Fechamento: ${new Date(faturaInfo.data_fechamento + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}</span>
+                </div>
                 {faturaTransacoes.map(t => (
                   <div key={t.id} className="flex items-center justify-between px-4 py-3 rounded-lg bg-[#16161f] border border-[#2a2a3a]">
                     <div className="flex items-center gap-3">
                       <span className="text-lg">{t._financeiro_categorias?.icone || '📋'}</span>
                       <div>
                         <p className="text-sm text-gray-200">{t.descricao}</p>
-                        <p className="text-[10px] text-gray-500">{new Date(t.data_vencimento).toLocaleDateString('pt-BR')}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-gray-500">{new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                          {t.status === 'pago' && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">pago</span>}
+                        </div>
                       </div>
                     </div>
                     <span className="text-sm font-semibold text-red-400">-{formatCurrency(Number(t.valor))}</span>

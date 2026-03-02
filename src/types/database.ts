@@ -133,6 +133,9 @@ export interface FaturaCartao {
   transacao_pagamento_id?: string | null
   created_at: string
   updated_at: string
+  // Joins
+  cartao_credito?: CartaoCredito | null
+  transacao_pagamento?: Transacao | null
 }
 
 export interface Cobranca {
@@ -271,6 +274,8 @@ export interface Database {
       _financeiro_notificacoes_log: { Row: NotificacaoLog; Insert: Partial<NotificacaoLog>; Update: Partial<NotificacaoLog> }
       _financeiro_dre: { Row: DRE; Insert: Partial<DRE>; Update: Partial<DRE> }
       _financeiro_fluxo_caixa: { Row: FluxoCaixa; Insert: Partial<FluxoCaixa>; Update: Partial<FluxoCaixa> }
+      _financeiro_cartoes_credito: { Row: CartaoCredito; Insert: Partial<CartaoCredito>; Update: Partial<CartaoCredito> }
+      _financeiro_faturas_cartao: { Row: FaturaCartao; Insert: Partial<FaturaCartao>; Update: Partial<FaturaCartao> }
     }
     Views: {
       _financeiro_view_resumo_franquia: {
