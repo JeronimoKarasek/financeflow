@@ -53,7 +53,8 @@ const PROVIDER_FIELDS: Record<string, FieldDef[]> = {
     { key: 'api_url', label: 'URL da Instância', placeholder: 'https://evolution.seudominio.com', type: 'url', storage: 'extra', required: true },
     { key: 'api_key', label: 'Global API Key', placeholder: 'Chave global da Evolution API', type: 'text', storage: 'api_key', required: true },
     { key: 'instance_name', label: 'Nome da Instância', placeholder: 'farolfinance', type: 'text', storage: 'extra', required: true },
-    { key: 'webhook_url', label: 'Webhook URL (opcional)', placeholder: 'https://...', type: 'url', storage: 'webhook_url' },
+    { key: 'numero_whatsapp', label: 'Número WhatsApp (Bot)', placeholder: '5541999999999', type: 'text', storage: 'extra', required: true },
+    { key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://financeiro.farolbase.com/api/whatsapp/webhook', type: 'url', storage: 'webhook_url' },
   ],
   asaas: [
     { key: 'api_key', label: 'API Key (Token)', placeholder: 'Token de acesso Asaas', type: 'text', storage: 'api_key', required: true },
@@ -113,7 +114,7 @@ const DEFAULT_FIELDS: FieldDef[] = [
 
 const PROVIDER_HINTS: Record<string, string> = {
   openai: 'A API Key da OpenAI ativa todas as funcionalidades de IA: categorização automática, consultor financeiro via WhatsApp, insights, relatórios e análise preditiva. Modelo padrão: gpt-4o-mini (mais barato). Use gpt-4o para melhor qualidade.',
-  evolution_api: 'Informe a URL da sua instância Evolution API, a API Key global e o nome da instância para conectar o WhatsApp.',
+  evolution_api: 'Informe a URL da sua instância Evolution API, API Key, nome da instância e o número do WhatsApp que o bot usará para enviar/receber mensagens. O webhook deve apontar para: https://financeiro.farolbase.com/api/whatsapp/webhook — O Agente IA pode executar ações no sistema: criar transações, cobranças, alterar status, consultar saldos e muito mais, tudo via WhatsApp!',
   c6bank: 'mTLS obrigatório: cole o conteúdo dos arquivos .crt e .key nos campos abaixo.',
   asaas: 'Use o token de acesso do painel Asaas (Configurações → Integrações → API).',
   stripe: 'Obtenha as chaves no Dashboard Stripe → Developers → API Keys.',

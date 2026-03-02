@@ -1,14 +1,19 @@
 // ============================================================
-// WEBHOOK WHATSAPP: Recebe mensagens da Evolution API + Consultor IA
+// WEBHOOK WHATSAPP: Recebe mensagens da Evolution API + Agente IA
 // Suporta Evolution API v1 e v2 (múltiplos formatos de payload)
+// O Agente IA pode executar ações no sistema financeiro via
+// function calling do OpenAI (criar/alterar/excluir transações,
+// cobranças, contas, categorias, enviar mensagens, etc.)
+// Webhook URL: https://financeiro.farolbase.com/api/whatsapp/webhook
 // ============================================================
 import { NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase'
-import { getOpenAIConfig, chatFinanceiro } from '@/lib/ai-engine'
+import { getOpenAIConfig } from '@/lib/ai-engine'
+import { agenteFinanceiro } from '@/lib/ai-agent'
 
 export const dynamic = 'force-dynamic'
 
-// Buscar credenciais da Evolution API
+// Buscar credenciais da Evolution API + número do WhatsApp configurado
 async function getEvolutionConfig() {
   try {
     const supabase = createServerSupabase()
@@ -23,6 +28,7 @@ async function getEvolutionConfig() {
         url: data.configuracoes_extra?.api_url || '',
         key: data.api_key || '',
         instance: data.configuracoes_extra?.instance_name || 'farolfinance',
+        numero_whatsapp: data.configuracoes_extra?.numero_whatsapp || '',
       }
     }
   } catch { /* fallback */ }
@@ -30,14 +36,15 @@ async function getEvolutionConfig() {
     url: process.env.EVOLUTION_API_URL || '',
     key: process.env.EVOLUTION_API_KEY || '',
     instance: process.env.EVOLUTION_INSTANCE || 'farolfinance',
+    numero_whatsapp: '',
   }
 }
 
-// Enviar resposta via Evolution API
+// Enviar resposta via Evolution API — sempre responde no número configurado na integração
 async function enviarResposta(telefone: string, mensagem: string) {
-  const { url, key, instance } = await getEvolutionConfig()
-  if (!url || !key) {
-    console.error('[WA Webhook] Evolution API não configurada - url:', !!url, 'key:', !!key)
+  const config = await getEvolutionConfig()
+  if (!config.url || !config.key) {
+    console.error('[WA Webhook] Evolution API não configurada - url:', !!config.url, 'key:', !!config.key)
     return
   }
 
@@ -48,24 +55,55 @@ async function enviarResposta(telefone: string, mensagem: string) {
 
   console.log('[WA Webhook] Enviando resposta para:', numero, '| Tamanho:', mensagem.length)
 
-  try {
-    const res = await fetch(`${url}/message/sendText/${instance}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: key },
-      body: JSON.stringify({ number: numero, text: mensagem }),
-    })
-    const result = await res.json()
-    if (!res.ok) {
-      console.error('[WA Webhook] Erro Evolution API:', res.status, JSON.stringify(result))
+  // Quebrar mensagens longas (WhatsApp tem limite de ~4096 chars)
+  const MAX_LEN = 4000
+  const partes: string[] = []
+  if (mensagem.length <= MAX_LEN) {
+    partes.push(mensagem)
+  } else {
+    let restante = mensagem
+    while (restante.length > 0) {
+      if (restante.length <= MAX_LEN) {
+        partes.push(restante)
+        break
+      }
+      // Tentar quebrar em \n próximo do limite
+      let corte = restante.lastIndexOf('\n', MAX_LEN)
+      if (corte < MAX_LEN * 0.5) corte = MAX_LEN
+      partes.push(restante.substring(0, corte))
+      restante = restante.substring(corte).trimStart()
     }
-  } catch (err) {
-    console.error('[WA Webhook] Erro ao enviar resposta:', err)
+  }
+
+  for (const parte of partes) {
+    try {
+      const res = await fetch(`${config.url}/message/sendText/${config.instance}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: config.key },
+        body: JSON.stringify({ number: numero, text: parte }),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        console.error('[WA Webhook] Erro Evolution API:', res.status, JSON.stringify(result))
+      }
+      // Pequeno delay entre partes
+      if (partes.length > 1) await new Promise(r => setTimeout(r, 500))
+    } catch (err) {
+      console.error('[WA Webhook] Erro ao enviar resposta:', err)
+    }
   }
 }
 
-// Buscar número do admin
+// Buscar número do admin — prioridade: integração Evolution API > preferências de notificação
 async function getNumeroAdmin(): Promise<string | null> {
   try {
+    // 1) Buscar do número configurado na integração Evolution API
+    const evolutionConfig = await getEvolutionConfig()
+    if (evolutionConfig.numero_whatsapp) {
+      return evolutionConfig.numero_whatsapp
+    }
+
+    // 2) Fallback: preferências de notificação
     const supabase = createServerSupabase()
     const { data } = await supabase
       .from('_financeiro_preferencias_notificacao')
@@ -212,63 +250,84 @@ export async function POST(request: Request) {
     const aiConfig = await getOpenAIConfig()
     if (!aiConfig) {
       console.log('[WA Webhook] OpenAI NÃO configurada')
-      await enviarResposta(msg.telefone, '⚠️ O módulo de IA não está configurado.\n\nConfigure a API da OpenAI em:\n*Painel Web → Integrações → OpenAI*')
+      const numeroResposta = adminNum || msg.telefone
+      await enviarResposta(numeroResposta, '⚠️ O módulo de IA não está configurado.\n\nConfigure a API da OpenAI em:\n*Painel Web → Integrações → OpenAI*')
       return NextResponse.json({ ok: true, status: 'no_ai_config' })
     }
 
     console.log('[WA Webhook] OpenAI OK, modelo:', aiConfig.model)
 
+    // Buscar config da Evolution para passar ao agente
+    const evolutionCfg = await getEvolutionConfig()
+
+    // Número para responder — sempre usa o número configurado na integração
+    const numeroResposta = evolutionCfg.numero_whatsapp
+      ? evolutionCfg.numero_whatsapp.replace(/\D/g, '')
+      : msg.telefone
+
     // Comandos rápidos sem IA
     const textoLower = msg.texto.toLowerCase()
     
     if (textoLower === '/ajuda' || textoLower === '/help' || textoLower === 'menu') {
-      const help = `🤖 *Farol Finance - Consultor IA*
+      const help = `🤖 *Agente Farol Finance — IA com Poderes Totais*
 
-Eu posso te ajudar com suas finanças! Exemplos:
+Eu sou seu assistente financeiro e posso *executar ações* no sistema! Exemplos:
 
-💰 *Saldos e contas*
+💰 *Consultas*
 • "Qual meu saldo?"
-• "Como estão minhas contas?"
-
-📊 *Gastos e análises*
-• "Quanto gastei este mês?"
-• "Quais meus maiores gastos?"
-• "Compare com o mês passado"
-
-⏳ *Contas a pagar/receber*
-• "O que vence essa semana?"
-• "Tenho contas atrasadas?"
-
-💳 *Cartões*
+• "Quais contas vencem essa semana?"
+• "Mostre minhas transações de março"
 • "Como estão meus cartões?"
 
-📈 *Relatórios*
+✏️ *Criar/Registrar*
+• "Registre uma despesa de R$150 em Alimentação"
+• "Crie uma receita de R$5000 de venda"
+• "Crie uma cobrança de R$1200 para João"
+• "Crie uma categoria Uber de despesa"
+
+🔄 *Alterar*
+• "Marque o aluguel como pago"
+• "Altere o valor da internet para R$120"
+• "Mude o status da cobrança do João"
+• "Ajuste o saldo da conta Nubank para R$3000"
+
+🗑️ *Excluir*
+• "Exclua a transação de Material de Escritório"
+• "Delete a cobrança do Pedro"
+
+📱 *WhatsApp*
+• "Envie uma mensagem para 41999999999"
+• "Cobre o João no WhatsApp"
+
+📊 *Relatórios*
 • "Me dê um resumo financeiro"
 • "Gere um relatório do mês"
-
-🎯 *Análises*
 • "Minha saúde financeira está boa?"
-• "Preciso economizar em quê?"
 
-Ou pergunte qualquer coisa sobre suas finanças! 🚀`
-      await enviarResposta(msg.telefone, help)
+_Pergunte qualquer coisa ou dê uma ordem!_ 🚀`
+      await enviarResposta(numeroResposta, help)
       return NextResponse.json({ ok: true, status: 'help_sent' })
     }
 
-    // Processar com IA
-    console.log('[WA Webhook] Chamando chatFinanceiro...')
-    const resposta = await chatFinanceiro(msg.texto, aiConfig)
-    console.log('[WA Webhook] Resposta IA gerada, tamanho:', resposta.length)
+    // Processar com Agente IA (function calling)
+    console.log('[WA Webhook] Chamando agenteFinanceiro...')
+    const resposta = await agenteFinanceiro(msg.texto, aiConfig, {
+      url: evolutionCfg.url,
+      key: evolutionCfg.key,
+      instance: evolutionCfg.instance,
+    })
+    console.log('[WA Webhook] Resposta Agente gerada, tamanho:', resposta.length)
 
-    // Enviar resposta
-    await enviarResposta(msg.telefone, resposta)
+    // Enviar resposta — sempre no número configurado
+    await enviarResposta(numeroResposta, resposta)
 
     // Logar conversa
     try {
-      const supabase = createServerSupabase()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = createServerSupabase() as any
       await supabase.from('_financeiro_notificacoes_log').insert({
-        tipo: 'consultor_ia',
-        destinatario_telefone: msg.telefone,
+        tipo: 'agente_ia',
+        destinatario_telefone: numeroResposta,
         mensagem: `[PERGUNTA] ${msg.texto}\n\n[RESPOSTA] ${resposta.substring(0, 500)}`,
         status: 'respondido',
       })

@@ -18,6 +18,7 @@ async function getEvolutionConfig() {
         url: (data.configuracoes_extra?.api_url as string) || '',
         key: data.api_key || '',
         instance: (data.configuracoes_extra?.instance_name as string) || 'farolfinance',
+        numero_whatsapp: (data.configuracoes_extra?.numero_whatsapp as string) || '',
       }
     }
   } catch { /* fallback abaixo */ }
@@ -25,6 +26,7 @@ async function getEvolutionConfig() {
     url: process.env.EVOLUTION_API_URL || '',
     key: process.env.EVOLUTION_API_KEY || '',
     instance: process.env.EVOLUTION_INSTANCE || 'farolfinance',
+    numero_whatsapp: '',
   }
 }
 
