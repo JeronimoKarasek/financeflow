@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase'
+import { categorizarTransacoes, CategoriaInfo } from '@/lib/categorization'
 
 export const dynamic = 'force-dynamic'
 
@@ -388,11 +389,53 @@ export async function POST(request: Request) {
     // Buscar categorias para mapear pelo nome
     const { data: categorias } = await supabase
       .from('_financeiro_categorias')
-      .select('id, nome')
+      .select('id, nome, tipo')
 
     const categoriaMap: Record<string, string> = {}
     for (const c of (categorias || [])) {
       categoriaMap[c.nome.toLowerCase().trim()] = c.id
+    }
+
+    // ============================================================
+    // IA: Categorização automática para transações sem categoria
+    // ============================================================
+    const descricoesParaIA = parsed
+      .filter(row => !row.categoria || !categoriaMap[row.categoria.toLowerCase().trim()])
+      .map(row => row.descricao)
+
+    const categoriasInfo: CategoriaInfo[] = (categorias || []).map(c => ({
+      id: c.id,
+      nome: c.nome,
+      tipo: c.tipo as 'receita' | 'despesa',
+    }))
+
+    // Buscar API key da OpenAI
+    const { data: configOpenAI } = await supabase
+      .from('_financeiro_preferencias_notificacao')
+      .select('openai_api_key')
+      .limit(1)
+      .single()
+
+    const openaiApiKey = configOpenAI?.openai_api_key || null
+
+    // Executar IA (descrições únicas para não repetir processamento)
+    const descricoesUnicas = [...new Set(descricoesParaIA)]
+    const iaResultados = descricoesUnicas.length > 0
+      ? await categorizarTransacoes(descricoesUnicas, categoriasInfo, supabase, openaiApiKey)
+      : []
+
+    // Criar mapa de IA: descrição → categoria_id
+    const iaMap: Record<string, string> = {}
+    let iaClassificadas = 0
+    let iaMetodos = { historico: 0, keywords: 0, openai: 0 }
+    for (const res of iaResultados) {
+      if (res.categoria_id && res.confianca >= 0.5) {
+        iaMap[res.descricao] = res.categoria_id
+        iaClassificadas++
+        if (res.metodo === 'historico') iaMetodos.historico++
+        if (res.metodo === 'keywords') iaMetodos.keywords++
+        if (res.metodo === 'openai') iaMetodos.openai++
+      }
     }
 
     // Buscar dados do cartão se for importação para cartão (para calcular vencimentos)
@@ -412,7 +455,10 @@ export async function POST(request: Request) {
 
     for (const row of parsed) {
       const franquiaId = row.franquia ? (franquiaMap[row.franquia.toLowerCase().trim()] || null) : null
-      const categoriaId = row.categoria ? (categoriaMap[row.categoria.toLowerCase().trim()] || null) : null
+      // Prioridade: 1) categoria do CSV, 2) IA automática
+      const categoriaId = row.categoria
+        ? (categoriaMap[row.categoria.toLowerCase().trim()] || iaMap[row.descricao] || null)
+        : (iaMap[row.descricao] || null)
       const isCartao = targetType === 'cartao'
 
       // Calcular data de vencimento base
@@ -528,6 +574,12 @@ export async function POST(request: Request) {
         valor_despesas: transacoes.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0),
         parcelas_geradas: parcelasGeradas,
         transacoes_fixas: totalFixas,
+      },
+      ia: {
+        total_analisadas: descricoesUnicas.length,
+        classificadas: iaClassificadas,
+        metodos: iaMetodos,
+        openai_ativo: !!openaiApiKey,
       }
     }, { status: 201 })
   } catch (error) {

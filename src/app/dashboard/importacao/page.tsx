@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, FileText, CheckCircle2, AlertCircle, ArrowUpRight, ArrowDownRight, CreditCard, Building2, X, FileSpreadsheet, Download, Trash2, Clock, History, Repeat, Layers } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, AlertCircle, ArrowUpRight, ArrowDownRight, CreditCard, Building2, X, FileSpreadsheet, Download, Trash2, Clock, History, Repeat, Layers, Sparkles } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
 interface ContaBancaria {
@@ -34,6 +34,16 @@ interface ImportResult {
     valor_despesas: number
     parcelas_geradas?: number
     transacoes_fixas?: number
+  }
+  ia?: {
+    total_analisadas: number
+    classificadas: number
+    metodos: {
+      historico: number
+      keywords: number
+      openai: number
+    }
+    openai_ativo: boolean
   }
 }
 
@@ -392,6 +402,55 @@ export default function ImportacaoPage() {
                   ) : null}
                 </div>
               ) : null}
+
+              {/* Resultado da IA de Categorização */}
+              {result.ia && result.ia.total_analisadas > 0 && (
+                <div className="mt-4 p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-medium text-purple-300">IA de Categorização</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-2.5 rounded-lg bg-[#16161f]">
+                      <p className="text-[10px] text-gray-500 mb-0.5">Analisadas</p>
+                      <p className="text-sm font-bold text-white">{result.ia.total_analisadas}</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-[#16161f]">
+                      <p className="text-[10px] text-gray-500 mb-0.5">Classificadas</p>
+                      <p className="text-sm font-bold text-purple-400">{result.ia.classificadas}</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-[#16161f]">
+                      <p className="text-[10px] text-gray-500 mb-0.5">Não classificadas</p>
+                      <p className="text-sm font-bold text-gray-400">{result.ia.total_analisadas - result.ia.classificadas}</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-[#16161f]">
+                      <p className="text-[10px] text-gray-500 mb-0.5">OpenAI</p>
+                      <p className={`text-sm font-bold ${result.ia.openai_ativo ? 'text-emerald-400' : 'text-gray-600'}`}>
+                        {result.ia.openai_ativo ? 'Ativo' : 'Inativo'}
+                      </p>
+                    </div>
+                  </div>
+                  {result.ia.classificadas > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {result.ia.metodos.historico > 0 && (
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          📚 Histórico: {result.ia.metodos.historico}
+                        </span>
+                      )}
+                      {result.ia.metodos.keywords > 0 && (
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          🔑 Keywords: {result.ia.metodos.keywords}
+                        </span>
+                      )}
+                      {result.ia.metodos.openai > 0 && (
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                          🤖 GPT: {result.ia.metodos.openai}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

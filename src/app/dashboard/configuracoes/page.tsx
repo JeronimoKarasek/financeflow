@@ -29,7 +29,7 @@ export default function ConfiguracoesPage() {
   const [notificacoes, setNotificacoes] = useState({
     whatsapp_ativo: true, dias_antes_vencimento: 3,
     notificar_atraso: true, notificar_recebimento: false,
-    horario_envio: '09:00', numero_whatsapp: '',
+    horario_envio: '09:00', numero_whatsapp: '', openai_api_key: '',
   })
 
   const sections: ConfigSection[] = [
@@ -66,6 +66,7 @@ export default function ConfiguracoesPage() {
             notificar_recebimento: data.notificacoes.notificar_recebimento ?? false,
             horario_envio: data.notificacoes.horario_envio || '09:00',
             numero_whatsapp: data.notificacoes.numero_whatsapp || '',
+            openai_api_key: data.notificacoes.openai_api_key || '',
           }))
         }
         // Preencher APIs das integrações salvas
@@ -468,6 +469,25 @@ export default function ConfiguracoesPage() {
                       onChange={e => setNotificacoes({...notificacoes, horario_envio: e.target.value})}
                       className="w-full px-3 py-2 text-sm" />
                   </div>
+                </div>
+
+                {/* OpenAI API Key - IA de Categorização */}
+                <div className="p-4 rounded-lg bg-[#1c1c28] border border-purple-500/20 mt-2">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">🤖</span>
+                    <div>
+                      <p className="text-sm font-medium text-white">IA de Categorização (OpenAI)</p>
+                      <p className="text-xs text-gray-500">Categoriza transações importadas automaticamente usando GPT</p>
+                    </div>
+                  </div>
+                  <input 
+                    value={notificacoes.openai_api_key} 
+                    onChange={e => setNotificacoes({...notificacoes, openai_api_key: e.target.value.trim()})}
+                    placeholder="sk-..." 
+                    type="password"
+                    className="w-full px-3 py-2.5 text-sm rounded-lg bg-[#0d0d14] border border-[#2a2a3a] text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none transition-colors font-mono" 
+                  />
+                  <p className="text-[10px] text-gray-600 mt-1.5">Opcional. Sem a chave, a IA usa apenas histórico + keywords locais (sem custo). Com a chave, o GPT classifica transações que o motor local não consegue.</p>
                 </div>
               </div>
               <button onClick={handleSaveNotificacoes} disabled={saving} className="btn-primary flex items-center gap-2 text-sm">
