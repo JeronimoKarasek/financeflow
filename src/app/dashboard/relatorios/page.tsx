@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Building2, ChevronRight, ArrowLeft, X } from 'lucide-react'
+import { Building2, ChevronRight, ArrowLeft, X, Sparkles, RefreshCw } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -26,7 +26,7 @@ interface DrillLevel {
 }
 
 export default function RelatoriosPage() {
-  const [tipoRelatorio, setTipoRelatorio] = useState<'dre' | 'fluxo' | 'categorias' | 'franquias'>('dre')
+  const [tipoRelatorio, setTipoRelatorio] = useState<'dre' | 'fluxo' | 'categorias' | 'franquias' | 'ia'>('dre')
   const [franquias, setFranquias] = useState<FranquiaOption[]>([])
   const [franquiaId, setFranquiaId] = useState('')
   const [periodo, setPeriodo] = useState({ mes: new Date().getMonth() + 1, ano: new Date().getFullYear() })
@@ -37,6 +37,9 @@ export default function RelatoriosPage() {
   const [loading, setLoading] = useState(true)
   const [allTransacoes, setAllTransacoes] = useState<Transacao[]>([])
   const [drillDown, setDrillDown] = useState<DrillLevel | null>(null)
+  const [iaRelatorio, setIaRelatorio] = useState<string | null>(null)
+  const [iaLoading, setIaLoading] = useState(false)
+  const [iaFormato, setIaFormato] = useState<'completo' | 'resumido'>('completo')
 
   useEffect(() => { fetchFranquias() }, [])
 
@@ -154,6 +157,7 @@ export default function RelatoriosPage() {
           { id: 'fluxo' as const, label: 'Fluxo de Caixa' },
           { id: 'categorias' as const, label: 'Por Categorias' },
           { id: 'franquias' as const, label: 'Por Franquias' },
+          { id: 'ia' as const, label: '✨ Relatório IA' },
         ]).map(tab => (
           <button key={tab.id} onClick={() => setTipoRelatorio(tab.id)}
             className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
@@ -475,6 +479,77 @@ export default function RelatoriosPage() {
                 </>
               )}
             </div>
+              )}
+            </div>
+          )}
+
+          {/* ====== Relatório Gerado por IA ====== */}
+          {tipoRelatorio === 'ia' && (
+            <div className="glass-card p-6 border border-purple-500/20">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  <h3 className="text-lg font-semibold text-white">Relatório Financeiro com IA</h3>
+                </div>
+                <div className="flex items-center gap-3">
+                  <select value={iaFormato} onChange={e => setIaFormato(e.target.value as 'completo' | 'resumido')} className="px-3 py-1.5 text-xs">
+                    <option value="completo">Completo</option>
+                    <option value="resumido">Resumido</option>
+                  </select>
+                  <button onClick={async () => {
+                    setIaLoading(true)
+                    try {
+                      const res = await fetch(`/api/ia/relatorio?formato=${iaFormato}`)
+                      const data = await res.json()
+                      setIaRelatorio(data.relatorio || data.error || 'Erro')
+                    } catch { setIaRelatorio('Erro de conexão') }
+                    finally { setIaLoading(false) }
+                  }} disabled={iaLoading}
+                    className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-all disabled:opacity-50">
+                    {iaLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {iaLoading ? 'Gerando...' : 'Gerar Relatório'}
+                  </button>
+                </div>
+              </div>
+
+              {iaLoading && (
+                <div className="flex items-center justify-center py-12 gap-3">
+                  <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-purple-300 text-sm">Analisando dados e gerando relatório...</span>
+                </div>
+              )}
+
+              {!iaRelatorio && !iaLoading && (
+                <div className="text-center py-12">
+                  <Sparkles className="w-12 h-12 text-purple-500/20 mx-auto mb-3" />
+                  <p className="text-gray-400 text-sm">Clique em &quot;Gerar Relatório&quot; para criar uma análise com IA</p>
+                  <p className="text-gray-600 text-xs mt-1">A IA analisa todas as suas finanças e gera um relatório detalhado em linguagem natural</p>
+                </div>
+              )}
+
+              {iaRelatorio && !iaLoading && (
+                <div className="space-y-4">
+                  <div className="p-6 rounded-lg bg-[#12121a] border border-[#2a2a3a] text-sm text-gray-300 whitespace-pre-wrap leading-relaxed max-h-[70vh] overflow-y-auto">
+                    {iaRelatorio}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => navigator.clipboard.writeText(iaRelatorio).then(() => alert('Copiado!'))}
+                      className="btn-secondary text-xs flex items-center gap-2">
+                      Copiar Relatório
+                    </button>
+                    <button onClick={() => {
+                      const blob = new Blob([iaRelatorio], { type: 'text/plain;charset=utf-8' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `relatorio-ia-${new Date().toISOString().split('T')[0]}.txt`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }} className="btn-secondary text-xs flex items-center gap-2">
+                      Baixar .txt
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}

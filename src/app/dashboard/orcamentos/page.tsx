@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Wallet, Plus, X, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Pencil, Trash2 } from 'lucide-react'
+import { Wallet, Plus, X, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Pencil, Trash2, Sparkles } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 interface Orcamento {
@@ -34,6 +34,8 @@ export default function OrcamentosPage() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState({ categoria_id: '', franquia_id: '', valor_previsto: '' })
   const [erro, setErro] = useState('')
+  const [iaSugestoes, setIaSugestoes] = useState<{ categoria: string; categoria_id: string; valor_sugerido: number; justificativa: string }[]>([])
+  const [iaLoading, setIaLoading] = useState(false)
 
   useEffect(() => {
     fetchCategorias()
@@ -141,9 +143,23 @@ export default function OrcamentosPage() {
           <h1 className="text-2xl font-bold text-white">Orçamentos</h1>
           <p className="text-gray-500 text-sm mt-1">Planejamento e controle orçamentário</p>
         </div>
-        <button onClick={openNewModal} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus className="w-4 h-4" /> Novo Orçamento
-        </button>
+        <div className="flex gap-2">
+          <button onClick={async () => {
+            setIaLoading(true)
+            try {
+              const res = await fetch('/api/ia/orcamento')
+              const data = await res.json()
+              setIaSugestoes(data.sugestoes || [])
+            } catch { alert('Erro ao gerar sugestões') }
+            finally { setIaLoading(false) }
+          }} disabled={iaLoading} className="btn-secondary flex items-center gap-2 text-sm">
+            {iaLoading ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
+            {iaLoading ? 'Analisando...' : 'Sugerir com IA'}
+          </button>
+          <button onClick={openNewModal} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" /> Novo Orçamento
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-3">
@@ -154,6 +170,45 @@ export default function OrcamentosPage() {
           {[2024, 2025, 2026].map(a => <option key={a} value={a}>{a}</option>)}
         </select>
       </div>
+
+      {/* Sugestões da IA */}
+      {iaSugestoes.length > 0 && (
+        <div className="glass-card p-5 border border-purple-500/20 bg-gradient-to-r from-purple-500/5 to-indigo-500/5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              Sugestões da IA baseadas nos últimos 3 meses
+            </h3>
+            <button onClick={() => setIaSugestoes([])} className="text-gray-500 hover:text-white text-xs">Fechar</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {iaSugestoes.map((s, i) => {
+              const jaExiste = orcamentos.some(o => o.categoria_id === s.categoria_id)
+              return (
+                <div key={i} className="p-3 rounded-lg bg-[#12121a] border border-purple-500/10 hover:border-purple-500/30 transition-colors">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-gray-300">{s.categoria}</span>
+                    <span className="text-sm font-bold text-purple-400">{formatCurrency(s.valor_sugerido)}</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mb-2">{s.justificativa}</p>
+                  {!jaExiste ? (
+                    <button onClick={() => {
+                      setForm({ categoria_id: s.categoria_id, franquia_id: '', valor_previsto: String(s.valor_sugerido) })
+                      setEditId(null)
+                      setErro('')
+                      setModalOpen(true)
+                    }} className="text-[10px] text-purple-400 hover:text-purple-300 font-medium">
+                      + Criar orçamento
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-gray-600">Já existe para este mês</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="glass-card p-5">

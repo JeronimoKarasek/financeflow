@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard } from 'lucide-react'
+import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard, Sparkles, AlertTriangle as AlertTriangleIcon } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils'
 import type { Transacao, Categoria, Franquia, ContaBancaria } from '@/types/database'
 
@@ -27,6 +27,8 @@ export default function TransacoesPage() {
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [menuTransaction, setMenuTransaction] = useState<Transacao | null>(null)
   const [filtros, setFiltros] = useState({ tipo: '', status: '', franquia_id: '', search: '' })
+  const [duplicatas, setDuplicatas] = useState<{ descricao: string; ids: string[]; valor: number; datas: string[] }[]>([])
+  const [duplicatasLoading, setDuplicatasLoading] = useState(false)
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
     data_pagamento: '', status: 'pendente', categoria_id: '', conta_bancaria_id: '', franquia_id: '',
@@ -225,9 +227,24 @@ export default function TransacoesPage() {
           <h1 className="text-2xl font-bold text-white">Transações</h1>
           <p className="text-gray-500 text-sm mt-1">Receitas, despesas e transferências</p>
         </div>
-        <button onClick={() => { resetForm(); setEditingId(null); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus className="w-4 h-4" /> Nova Transação
-        </button>
+        <div className="flex gap-2">
+          <button onClick={async () => {
+            setDuplicatasLoading(true)
+            try {
+              const res = await fetch('/api/ia/duplicatas')
+              const data = await res.json()
+              setDuplicatas(data.duplicatas || [])
+            } catch { /* ignore */ }
+            finally { setDuplicatasLoading(false) }
+          }} disabled={duplicatasLoading}
+            className="btn-secondary flex items-center gap-2 text-sm">
+            {duplicatasLoading ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
+            Duplicatas
+          </button>
+          <button onClick={() => { resetForm(); setEditingId(null); setShowModal(true) }} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" /> Nova Transação
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -247,6 +264,35 @@ export default function TransacoesPage() {
           </p>
         </div>
       </div>
+
+      {/* Painel de Duplicatas */}
+      {duplicatas.length > 0 && (
+        <div className="glass-card p-5 border border-amber-500/20 bg-gradient-to-r from-amber-500/5 to-red-500/5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+              <AlertTriangleIcon className="w-4 h-4 text-amber-400" />
+              {duplicatas.length} Possíveis Duplicatas Detectadas
+            </h3>
+            <button onClick={() => setDuplicatas([])} className="text-gray-500 hover:text-white text-xs">Fechar</button>
+          </div>
+          <div className="space-y-2">
+            {duplicatas.map((g, i) => (
+              <div key={i} className="p-3 rounded-lg bg-[#12121a] border border-amber-500/10 flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-200">{g.descricao}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {g.ids.length} transações × {formatCurrency(g.valor)} • Datas: {g.datas.map(d => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')).join(', ')}
+                  </p>
+                </div>
+                <span className="text-xs text-amber-400 font-medium px-2 py-1 bg-amber-500/10 rounded-lg">
+                  {g.ids.length}x
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-600 mt-2">Revise e exclua manualmente as duplicatas se necessário</p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">

@@ -44,6 +44,7 @@ interface ImportResult {
       openai: number
     }
     openai_ativo: boolean
+    descricoes_melhoradas?: number
   }
 }
 
@@ -445,6 +446,11 @@ export default function ImportacaoPage() {
                       {result.ia.metodos.openai > 0 && (
                         <span className="text-[10px] px-2 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
                           🤖 GPT: {result.ia.metodos.openai}
+                        </span>
+                      )}
+                      {(result.ia.descricoes_melhoradas || 0) > 0 && (
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          ✏️ Descrições melhoradas: {result.ia.descricoes_melhoradas}
                         </span>
                       )}
                     </div>

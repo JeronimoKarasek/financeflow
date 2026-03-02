@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase'
 import { categorizarTransacoes, CategoriaInfo } from '@/lib/categorization'
+import { getOpenAIConfig, melhorarDescricoesOFX } from '@/lib/ai-engine'
 
 export const dynamic = 'force-dynamic'
 
@@ -397,6 +398,34 @@ export async function POST(request: Request) {
     }
 
     // ============================================================
+    // IA: Melhorar descrições OFX crípticas (antes de categorizar)
+    // ============================================================
+    const isOFX = fileName.endsWith('.ofx') || fileName.endsWith('.qfx')
+    let descricoesMelhoradas = 0
+    const descricaoMap: Map<string, string> = new Map()
+
+    if (isOFX && parsed.length > 0) {
+      const aiConfig = await getOpenAIConfig()
+      if (aiConfig) {
+        const descUnicas = [...new Set(parsed.map(r => r.descricao))]
+        const melhoradas = await melhorarDescricoesOFX(descUnicas, aiConfig)
+        for (const [original, melhorada] of melhoradas) {
+          if (melhorada && melhorada !== original) {
+            descricaoMap.set(original, melhorada)
+          }
+        }
+        // Aplicar descrições melhoradas no parsed
+        for (const row of parsed) {
+          const melhorada = descricaoMap.get(row.descricao)
+          if (melhorada) {
+            row.descricao = melhorada
+            descricoesMelhoradas++
+          }
+        }
+      }
+    }
+
+    // ============================================================
     // IA: Categorização automática para transações sem categoria
     // ============================================================
     const descricoesParaIA = parsed
@@ -409,14 +438,25 @@ export async function POST(request: Request) {
       tipo: c.tipo as 'receita' | 'despesa',
     }))
 
-    // Buscar API key da OpenAI
-    const { data: configOpenAI } = await supabase
-      .from('_financeiro_preferencias_notificacao')
-      .select('openai_api_key')
+    // Buscar API key da OpenAI (integrações > preferências)
+    let openaiApiKey: string | null = null
+    const { data: integOpenAI } = await supabase
+      .from('_financeiro_integracoes')
+      .select('api_key')
+      .eq('provedor', 'openai')
+      .eq('ativa', true)
       .limit(1)
-      .single()
-
-    const openaiApiKey = configOpenAI?.openai_api_key || null
+      .single() as { data: { api_key: string | null } | null }
+    if (integOpenAI?.api_key) {
+      openaiApiKey = integOpenAI.api_key
+    } else {
+      const { data: configOpenAI } = await supabase
+        .from('_financeiro_preferencias_notificacao')
+        .select('openai_api_key')
+        .limit(1)
+        .single() as { data: { openai_api_key: string | null } | null }
+      openaiApiKey = configOpenAI?.openai_api_key || null
+    }
 
     // Executar IA (descrições únicas para não repetir processamento)
     const descricoesUnicas = [...new Set(descricoesParaIA)]
@@ -580,6 +620,7 @@ export async function POST(request: Request) {
         classificadas: iaClassificadas,
         metodos: iaMetodos,
         openai_ativo: !!openaiApiKey,
+        descricoes_melhoradas: descricoesMelhoradas,
       }
     }, { status: 201 })
   } catch (error) {

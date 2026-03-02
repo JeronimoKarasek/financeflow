@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, X, Bell, Phone, Mail, AlertTriangle, Clock, CheckCircle, Send, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, X, Bell, Phone, Mail, AlertTriangle, Clock, CheckCircle, Send, Pencil, Trash2, Sparkles } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel, diasParaVencer } from '@/lib/utils'
 import type { Cobranca, Franquia } from '@/types/database'
 
@@ -14,6 +14,8 @@ export default function CobrancasPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [filtros, setFiltros] = useState({ tipo: '', status: '', search: '' })
   const [sendingWhatsapp, setSendingWhatsapp] = useState<string | null>(null)
+  const [iaLoading, setIaLoading] = useState<string | null>(null)
+  const [iaMensagem, setIaMensagem] = useState<{ id: string; mensagem: string } | null>(null)
   const [form, setForm] = useState({
     tipo: 'receber' as string, descricao: '', valor: '', data_vencimento: '',
     nome_contato: '', telefone_contato: '', email_contato: '', cpf_cnpj_contato: '',
@@ -139,6 +141,42 @@ export default function CobrancasPage() {
     alert(result.message || 'Verificação concluída')
   }
 
+  const handleIACobranca = async (cobranca: Cobranca) => {
+    setIaLoading(cobranca.id)
+    try {
+      const res = await fetch('/api/ia/cobranca', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cobranca_id: cobranca.id }),
+      })
+      const result = await res.json()
+      if (result.mensagem) {
+        setIaMensagem({ id: cobranca.id, mensagem: result.mensagem })
+      } else {
+        alert(result.error || 'Erro ao gerar mensagem IA')
+      }
+    } catch { alert('Erro de conexão com a IA') }
+    finally { setIaLoading(null) }
+  }
+
+  const handleSendIAMessage = async () => {
+    if (!iaMensagem) return
+    const cobranca = cobrancas.find(c => c.id === iaMensagem.id)
+    if (!cobranca?.telefone_contato) return alert('Contato sem telefone')
+    
+    setSendingWhatsapp(cobranca.id)
+    try {
+      await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: cobranca.telefone_contato, mensagem: iaMensagem.mensagem, nome: cobranca.nome_contato }),
+      })
+      alert('Mensagem enviada com sucesso!')
+      setIaMensagem(null)
+    } catch { alert('Erro ao enviar') }
+    finally { setSendingWhatsapp(null) }
+  }
+
   const filtered = cobrancas.filter(c =>
     !filtros.search || c.descricao.toLowerCase().includes(filtros.search.toLowerCase()) || c.nome_contato?.toLowerCase().includes(filtros.search.toLowerCase())
   )
@@ -261,6 +299,11 @@ export default function CobrancasPage() {
                           {sendingWhatsapp === c.id ? <div className="w-4 h-4 border-2 border-green-400/30 border-t-green-400 rounded-full animate-spin" /> : <Send className="w-4 h-4" />}
                         </button>
                       )}
+                      {c.status !== 'pago' && (
+                        <button onClick={() => handleIACobranca(c)} disabled={iaLoading === c.id} className="p-2 rounded-lg hover:bg-purple-500/10 text-gray-400 hover:text-purple-400 transition-colors" title="Gerar mensagem com IA">
+                          {iaLoading === c.id ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -336,7 +379,7 @@ export default function CobrancasPage() {
         </div>
       )}
 
-      {/* Confirmação de Exclusão */}
+      {/* Modal Confirmação de Exclusão */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmDelete(null)} />
@@ -347,6 +390,34 @@ export default function CobrancasPage() {
             <div className="flex gap-3">
               <button onClick={() => setConfirmDelete(null)} className="btn-secondary flex-1 text-sm">Cancelar</button>
               <button onClick={() => handleDelete(confirmDelete)} className="flex-1 py-2 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors">Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mensagem IA */}
+      {iaMensagem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIaMensagem(null)} />
+          <div className="relative glass-card p-6 max-w-md w-full">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              <h3 className="text-lg font-bold text-white">Mensagem Gerada pela IA</h3>
+            </div>
+            <div className="p-4 rounded-lg bg-[#12121a] border border-purple-500/20 text-sm text-gray-300 whitespace-pre-wrap mb-4 max-h-60 overflow-y-auto">
+              {iaMensagem.mensagem}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setIaMensagem(null)} className="btn-secondary flex-1 text-sm">Fechar</button>
+              <button onClick={() => { navigator.clipboard.writeText(iaMensagem.mensagem); alert('Copiado!') }} className="flex-1 py-2 rounded-lg text-sm font-medium bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors">
+                Copiar
+              </button>
+              {cobrancas.find(c => c.id === iaMensagem.id)?.telefone_contato && (
+                <button onClick={handleSendIAMessage} disabled={sendingWhatsapp === iaMensagem.id}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 transition-colors flex items-center justify-center gap-2">
+                  <Send className="w-4 h-4" /> Enviar
+                </button>
+              )}
             </div>
           </div>
         </div>

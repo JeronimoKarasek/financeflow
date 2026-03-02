@@ -5,7 +5,8 @@ import {
   TrendingUp, TrendingDown, DollarSign, Clock, AlertTriangle, 
   ArrowUpRight, ArrowDownRight, Building2, Wallet, Calendar,
   BarChart3, X, ChevronRight, Target, CircleDollarSign, Layers,
-  ArrowRightLeft, FileText
+  ArrowRightLeft, FileText, Sparkles, Brain, Shield, Zap, RefreshCw,
+  AlertCircle, CheckCircle, Info, TrendingUp as TrendUp
 } from 'lucide-react'
 import { formatCurrency, getStatusColor } from '@/lib/utils'
 import {
@@ -47,6 +48,10 @@ interface DashboardData {
 interface DrillTransacao { id: string; descricao: string; valor: number; tipo: string; status: string; data_vencimento: string; categoria_nome?: string; franquia_nome?: string }
 interface DrillState { type: 'categoria' | 'franquia'; nome: string; cor?: string; transacoes: DrillTransacao[] }
 
+interface IAInsight { tipo: 'info' | 'warning' | 'success' | 'danger'; titulo: string; descricao: string; valor?: string }
+interface IAScore { score: number; nivel: string; fatores: { nome: string; score: number; peso: number; detalhe: string }[]; recomendacoes: string[] }
+interface IAData { insights: IAInsight[]; score: IAScore }
+
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6']
 const RECEITA_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#059669', '#047857', '#065f46', '#14b8a6', '#2dd4bf']
 
@@ -56,8 +61,30 @@ export default function DashboardPage() {
   const [periodo, setPeriodo] = useState<'mes' | 'trimestre' | 'ano'>('mes')
   const [drill, setDrill] = useState<DrillState | null>(null)
   const [drillLoading, setDrillLoading] = useState(false)
+  const [iaData, setIaData] = useState<IAData | null>(null)
+  const [iaLoading, setIaLoading] = useState(false)
+  const [iaError, setIaError] = useState<string | null>(null)
 
   useEffect(() => { fetchDashboard() }, [periodo])
+
+  const fetchIA = async () => {
+    setIaLoading(true)
+    setIaError(null)
+    try {
+      const res = await fetch('/api/ia/insights')
+      if (!res.ok) {
+        const err = await res.json()
+        setIaError(err.error || 'Erro ao carregar IA')
+        return
+      }
+      const result = await res.json()
+      setIaData(result)
+    } catch {
+      setIaError('Erro de conexão com a IA')
+    } finally {
+      setIaLoading(false)
+    }
+  }
 
   const fetchDashboard = async () => {
     try {
@@ -209,6 +236,139 @@ export default function DashboardPage() {
             <p className="text-[10px] text-gray-600 mt-1">Receita: {formatCurrency(data.receitasMesAnterior)} • Despesa: {formatCurrency(data.despesasMesAnterior)}</p>
           </div>
         </div>
+      </div>
+
+      {/* ====== Painel de IA — Insights + Score de Saúde ====== */}
+      <div className="glass-card p-6 border border-purple-500/20 bg-gradient-to-r from-purple-500/5 to-indigo-500/5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            Inteligência Artificial
+          </h3>
+          <button onClick={fetchIA} disabled={iaLoading}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-all disabled:opacity-50">
+            {iaLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+            {iaLoading ? 'Analisando...' : iaData ? 'Atualizar Insights' : 'Gerar Insights com IA'}
+          </button>
+        </div>
+
+        {iaError && (
+          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs mb-4">
+            {iaError}
+          </div>
+        )}
+
+        {!iaData && !iaLoading && !iaError && (
+          <div className="text-center py-6">
+            <Brain className="w-10 h-10 text-purple-500/30 mx-auto mb-2" />
+            <p className="text-gray-500 text-sm">Clique em &quot;Gerar Insights com IA&quot; para obter análises inteligentes</p>
+            <p className="text-gray-600 text-[10px] mt-1">Requer OpenAI configurada em Integrações</p>
+          </div>
+        )}
+
+        {iaLoading && (
+          <div className="flex items-center justify-center py-8 gap-3">
+            <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+            <span className="text-purple-300 text-sm">A IA está analisando suas finanças...</span>
+          </div>
+        )}
+
+        {iaData && !iaLoading && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Score de Saúde Financeira */}
+            <div className="glass-card p-4 border border-purple-500/10">
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-medium text-gray-300">Saúde Financeira</span>
+              </div>
+              <div className="flex items-center justify-center mb-3">
+                <div className="relative w-24 h-24">
+                  <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#2a2a3a" strokeWidth="8" />
+                    <circle cx="50" cy="50" r="40" fill="none"
+                      stroke={iaData.score.score >= 85 ? '#10b981' : iaData.score.score >= 70 ? '#6366f1' : iaData.score.score >= 50 ? '#f59e0b' : '#ef4444'}
+                      strokeWidth="8" strokeLinecap="round"
+                      strokeDasharray={`${iaData.score.score * 2.51} 251`} />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-bold text-white">{iaData.score.score}</span>
+                    <span className="text-[9px] text-gray-400">{iaData.score.nivel}</span>
+                  </div>
+                </div>
+              </div>
+              {/* Fatores */}
+              <div className="space-y-1.5">
+                {iaData.score.fatores.slice(0, 4).map((f, i) => (
+                  <div key={i}>
+                    <div className="flex justify-between text-[10px] mb-0.5">
+                      <span className="text-gray-500">{f.nome}</span>
+                      <span className="text-gray-400">{f.score}%</span>
+                    </div>
+                    <div className="h-1 bg-[#1c1c28] rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{
+                        width: `${f.score}%`,
+                        backgroundColor: f.score >= 80 ? '#10b981' : f.score >= 60 ? '#6366f1' : f.score >= 40 ? '#f59e0b' : '#ef4444'
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Insights da IA — 3 colunas */}
+            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {iaData.insights.map((insight, i) => {
+                const iconMap = {
+                  info: <Info className="w-4 h-4 text-blue-400" />,
+                  warning: <AlertCircle className="w-4 h-4 text-amber-400" />,
+                  success: <CheckCircle className="w-4 h-4 text-emerald-400" />,
+                  danger: <AlertTriangle className="w-4 h-4 text-red-400" />,
+                }
+                const borderMap = {
+                  info: 'border-blue-500/20',
+                  warning: 'border-amber-500/20',
+                  success: 'border-emerald-500/20',
+                  danger: 'border-red-500/20',
+                }
+                return (
+                  <div key={i} className={`p-3 rounded-lg bg-[#12121a] border ${borderMap[insight.tipo]} hover:bg-[#1c1c28] transition-colors`}>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5">{iconMap[insight.tipo]}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-200 mb-1">{insight.titulo}</p>
+                        <p className="text-[11px] text-gray-500 leading-relaxed">{insight.descricao}</p>
+                        {insight.valor && (
+                          <p className="text-xs font-semibold text-purple-400 mt-1">{insight.valor}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {iaData.insights.length === 0 && (
+                <div className="col-span-full text-center py-4">
+                  <p className="text-gray-500 text-sm">Nenhum insight gerado</p>
+                </div>
+              )}
+              {/* Recomendações */}
+              {iaData.score.recomendacoes.length > 0 && (
+                <div className="col-span-full p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                  <p className="text-[10px] font-medium text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <Zap className="w-3 h-3" /> Recomendações da IA
+                  </p>
+                  <div className="space-y-1">
+                    {iaData.score.recomendacoes.map((rec, i) => (
+                      <p key={i} className="text-[11px] text-gray-400 flex items-start gap-2">
+                        <span className="text-purple-400 mt-0.5">•</span>
+                        {rec}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ====== Charts Row — Fluxo + Gráfico de Barras Franquias ====== */}

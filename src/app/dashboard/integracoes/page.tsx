@@ -6,6 +6,7 @@ import type { Integracao, Franquia } from '@/types/database'
 
 // ========== PROVEDORES ==========
 const PROVEDORES = [
+  { id: 'openai', nome: 'OpenAI', cor: '#10a37f', desc: 'IA: Categorização, Consultor, Insights, Relatórios' },
   { id: 'asaas', nome: 'Asaas', cor: '#0066FF', desc: 'Cobranças, boletos e PIX' },
   { id: 'stripe', nome: 'Stripe', cor: '#635BFF', desc: 'Pagamentos internacionais' },
   { id: 'mercado_pago', nome: 'Mercado Pago', cor: '#009EE3', desc: 'Pagamentos e QR Code' },
@@ -44,6 +45,10 @@ const BANK_FIELDS: FieldDef[] = [
 ]
 
 const PROVIDER_FIELDS: Record<string, FieldDef[]> = {
+  openai: [
+    { key: 'api_key', label: 'API Key', placeholder: 'sk-...', type: 'text', storage: 'api_key', required: true },
+    { key: 'model', label: 'Modelo padrão', placeholder: 'gpt-4o-mini', type: 'text', storage: 'extra' },
+  ],
   evolution_api: [
     { key: 'api_url', label: 'URL da Instância', placeholder: 'https://evolution.seudominio.com', type: 'url', storage: 'extra', required: true },
     { key: 'api_key', label: 'Global API Key', placeholder: 'Chave global da Evolution API', type: 'text', storage: 'api_key', required: true },
@@ -107,6 +112,7 @@ const DEFAULT_FIELDS: FieldDef[] = [
 ]
 
 const PROVIDER_HINTS: Record<string, string> = {
+  openai: 'A API Key da OpenAI ativa todas as funcionalidades de IA: categorização automática, consultor financeiro via WhatsApp, insights, relatórios e análise preditiva. Modelo padrão: gpt-4o-mini (mais barato). Use gpt-4o para melhor qualidade.',
   evolution_api: 'Informe a URL da sua instância Evolution API, a API Key global e o nome da instância para conectar o WhatsApp.',
   c6bank: 'mTLS obrigatório: cole o conteúdo dos arquivos .crt e .key nos campos abaixo.',
   asaas: 'Use o token de acesso do painel Asaas (Configurações → Integrações → API).',
