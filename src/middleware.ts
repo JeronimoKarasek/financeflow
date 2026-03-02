@@ -4,7 +4,12 @@ import { jwtVerify } from 'jose'
 
 const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
 
-const publicRoutes = ['/login', '/api/auth/login']
+const publicRoutes = [
+  '/login',
+  '/api/auth/login',
+  '/api/whatsapp/webhook',
+  '/api/c6bank/webhooks',
+]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl

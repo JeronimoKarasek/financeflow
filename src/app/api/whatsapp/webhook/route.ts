@@ -6,12 +6,13 @@
 // cobranças, contas, categorias, enviar mensagens, etc.)
 // Webhook URL: https://financeiro.farolbase.com/api/whatsapp/webhook
 // ============================================================
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase'
 import { getOpenAIConfig } from '@/lib/ai-engine'
 import { agenteFinanceiro } from '@/lib/ai-agent'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60 // Vercel Pro: até 60s
 
 // Buscar credenciais da Evolution API + número do WhatsApp configurado
 async function getEvolutionConfig() {
@@ -128,6 +129,8 @@ interface MensagemExtraida {
 
 function extrairMensagem(body: Record<string, unknown>): MensagemExtraida | null {
   try {
+    console.log('[WA Webhook] Payload keys:', Object.keys(body).join(', '))
+    
     // Evolution API pode enviar data como objeto ou array
     let messageData: Record<string, unknown> = body
     
@@ -140,12 +143,20 @@ function extrairMensagem(body: Record<string, unknown>): MensagemExtraida | null
       }
     }
 
+    console.log('[WA Webhook] MessageData keys:', Object.keys(messageData).join(', '))
+
     // Extrair key (contém fromMe e remoteJid)
     const key = (messageData.key || body.key || {}) as Record<string, unknown>
     const fromMe = !!(key.fromMe)
     const remoteJid = String(key.remoteJid || messageData.remoteJid || body.remoteJid || '')
     const isGroup = remoteJid.includes('@g.us')
     const telefone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+
+    // Verificar se é do tipo statusMessage (ignorar)
+    if (messageData.messageType === 'protocolMessage' || messageData.messageType === 'senderKeyDistributionMessage') {
+      console.log('[WA Webhook] Tipo de mensagem ignorado:', messageData.messageType)
+      return null
+    }
 
     // Extrair texto da mensagem — cobrir todos os formatos conhecidos
     const msgObj = (messageData.message || {}) as Record<string, unknown>
@@ -155,22 +166,33 @@ function extrairMensagem(body: Record<string, unknown>): MensagemExtraida | null
     // 2) message.extendedTextMessage.text (mensagem com link/menção)
     // 3) message.buttonsResponseMessage.selectedDisplayText (botões)
     // 4) message.listResponseMessage.title (listas)
-    // 5) messageData.body (alguns formatos legacy)
-    // 6) body.text (formato alternativo)
+    // 5) message.templateButtonReplyMessage.selectedDisplayText (template)
+    // 6) messageData.body (Evolution API v2 simplificado)
+    // 7) body.body / body.text (formatos alternativos)
     const extendedText = (msgObj.extendedTextMessage || {}) as Record<string, unknown>
     const buttonsResp = (msgObj.buttonsResponseMessage || {}) as Record<string, unknown>
     const listResp = (msgObj.listResponseMessage || {}) as Record<string, unknown>
+    const templateResp = (msgObj.templateButtonReplyMessage || {}) as Record<string, unknown>
+    const imageMsg = (msgObj.imageMessage || {}) as Record<string, unknown>
+    const videoMsg = (msgObj.videoMessage || {}) as Record<string, unknown>
+    const docMsg = (msgObj.documentMessage || {}) as Record<string, unknown>
 
     const texto = String(
       msgObj.conversation
       || extendedText.text
       || buttonsResp.selectedDisplayText
       || listResp.title
+      || templateResp.selectedDisplayText
+      || imageMsg.caption
+      || videoMsg.caption
+      || docMsg.caption
       || messageData.body
       || body.body
       || body.text
       || ''
     ).trim()
+
+    console.log('[WA Webhook] Extraído:', { telefone, fromMe, isGroup, textoLen: texto.length, textoPrev: texto.substring(0, 50) })
 
     return { texto, telefone, fromMe, isGroup }
   } catch (err) {
@@ -181,27 +203,35 @@ function extrairMensagem(body: Record<string, unknown>): MensagemExtraida | null
 
 // ============================================================
 // POST - Recebe webhooks da Evolution API
+// Responde 200 imediatamente e processa em background via after()
 // ============================================================
 export async function POST(request: Request) {
   try {
     const body = await request.json()
 
     // Log do evento para debug
-    const event = String(body.event || body.type || '').toLowerCase()
-    console.log('[WA Webhook] Evento recebido:', event, '| Instance:', body.instance || '-')
+    const event = String(body.event || body.type || body.action || '').toLowerCase()
+    console.log('[WA Webhook] ====== NOVO EVENTO ======')
+    console.log('[WA Webhook] Evento:', event, '| Instance:', body.instance || body.instanceName || '-')
+    console.log('[WA Webhook] Body keys:', Object.keys(body).join(', '))
 
     // Só processar mensagens recebidas
-    const eventosValidos = ['messages.upsert', 'message', 'messages_upsert']
-    if (!eventosValidos.includes(event)) {
-      // Evento não é de mensagem (pode ser status, connection, etc.)
+    // Evolution API v1: messages.upsert | v2: MESSAGES_UPSERT | outros: message
+    const eventosValidos = ['messages.upsert', 'message', 'messages_upsert', 'messages']
+    if (!eventosValidos.includes(event) && event !== '') {
+      // Evento não é de mensagem (pode ser status, connection, qrcode, etc.)
+      console.log('[WA Webhook] Evento ignorado:', event)
       return NextResponse.json({ ok: true, ignored: event })
     }
+
+    // Se não tem event definido, pode ser payload direto da Evolution API
+    // Nesse caso, tentamos extrair a mensagem mesmo assim
 
     // Extrair dados da mensagem
     const msg = extrairMensagem(body)
     if (!msg) {
-      console.log('[WA Webhook] Não foi possível extrair mensagem do payload')
-      return NextResponse.json({ ok: true })
+      console.log('[WA Webhook] Não foi possível extrair mensagem do payload:', JSON.stringify(body).substring(0, 500))
+      return NextResponse.json({ ok: true, status: 'no_message_extracted' })
     }
 
     console.log('[WA Webhook] Mensagem:', {
@@ -228,48 +258,73 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ignored: 'no_text' })
     }
 
-    // Verificar se é do admin (por segurança, só responde ao dono)
-    const adminNum = await getNumeroAdmin()
-    console.log('[WA Webhook] Admin:', adminNum ? adminNum.slice(-4) + '****' : 'NÃO CONFIGURADO')
-
-    if (adminNum) {
-      const adminNormalizado = adminNum.replace(/\D/g, '')
-      const remetenteNormalizado = msg.telefone.replace(/\D/g, '')
-      const adminUltimos = adminNormalizado.slice(-11)
-      const remetenteUltimos = remetenteNormalizado.slice(-11)
-      if (adminUltimos !== remetenteUltimos) {
-        console.log('[WA Webhook] Remetente não é admin:', remetenteUltimos.slice(-4), '≠', adminUltimos.slice(-4))
-        return NextResponse.json({ ok: true, ignored: 'not_admin' })
+    // Processar em background usando after() — responde 200 imediatamente
+    after(async () => {
+      try {
+        await processarMensagem(msg)
+      } catch (err) {
+        console.error('[WA Webhook] Erro no processamento background:', err)
       }
-    } else {
-      // Se não tem admin configurado, responde a qualquer um (perigoso mas funcional)
-      console.log('[WA Webhook] SEM admin configurado — respondendo a qualquer remetente')
+    })
+
+    return NextResponse.json({ ok: true, status: 'processing' })
+  } catch (error) {
+    console.error('[WA Webhook] ERRO ao parsear body:', error)
+    // Sempre retornar 200 para não bloquear webhooks futuros
+    return NextResponse.json({ ok: true, error: 'parse_error' })
+  }
+}
+
+// ============================================================
+// Processamento em background (chamado via after())
+// ============================================================
+async function processarMensagem(msg: MensagemExtraida) {
+  // Verificar se é do admin (por segurança, só responde ao dono)
+  const adminNum = await getNumeroAdmin()
+  console.log('[WA Webhook] Admin configurado:', adminNum || 'NENHUM')
+
+  if (adminNum) {
+    const adminNormalizado = adminNum.replace(/\D/g, '')
+    const remetenteNormalizado = msg.telefone.replace(/\D/g, '')
+    // Comparar últimos 11 dígitos (ignora código do país)
+    const adminUltimos = adminNormalizado.slice(-11)
+    const remetenteUltimos = remetenteNormalizado.slice(-11)
+    console.log('[WA Webhook] Comparando:', remetenteUltimos, 'vs admin:', adminUltimos)
+    if (adminUltimos !== remetenteUltimos) {
+      console.log('[WA Webhook] Remetente NÃO é admin — ignorando')
+      return
     }
+    console.log('[WA Webhook] ✓ Remetente é admin!')
+  } else {
+    console.log('[WA Webhook] SEM admin configurado — respondendo a qualquer remetente')
+  }
 
-    // Verificar se OpenAI está configurada
-    const aiConfig = await getOpenAIConfig()
-    if (!aiConfig) {
-      console.log('[WA Webhook] OpenAI NÃO configurada')
-      const numeroResposta = adminNum || msg.telefone
-      await enviarResposta(numeroResposta, '⚠️ O módulo de IA não está configurado.\n\nConfigure a API da OpenAI em:\n*Painel Web → Integrações → OpenAI*')
-      return NextResponse.json({ ok: true, status: 'no_ai_config' })
-    }
+  // Verificar se OpenAI está configurada
+  const aiConfig = await getOpenAIConfig()
+  if (!aiConfig) {
+    console.log('[WA Webhook] OpenAI NÃO configurada')
+    const numeroResposta = adminNum || msg.telefone
+    await enviarResposta(numeroResposta, '⚠️ O módulo de IA não está configurado.\n\nConfigure a API da OpenAI em:\n*Painel Web → Integrações → OpenAI*')
+    return
+  }
 
-    console.log('[WA Webhook] OpenAI OK, modelo:', aiConfig.model)
+  console.log('[WA Webhook] OpenAI OK, modelo:', aiConfig.model)
 
-    // Buscar config da Evolution para passar ao agente
-    const evolutionCfg = await getEvolutionConfig()
+  // Buscar config da Evolution para passar ao agente
+  const evolutionCfg = await getEvolutionConfig()
 
-    // Número para responder — sempre usa o número configurado na integração
-    const numeroResposta = evolutionCfg.numero_whatsapp
-      ? evolutionCfg.numero_whatsapp.replace(/\D/g, '')
-      : msg.telefone
+  // Número para responder — sempre usa o número configurado na integração
+  const numeroResposta = evolutionCfg.numero_whatsapp
+    ? evolutionCfg.numero_whatsapp.replace(/\D/g, '')
+    : msg.telefone
 
-    // Comandos rápidos sem IA
-    const textoLower = msg.texto.toLowerCase()
-    
-    if (textoLower === '/ajuda' || textoLower === '/help' || textoLower === 'menu') {
-      const help = `🤖 *Agente Farol Finance — IA com Poderes Totais*
+  console.log('[WA Webhook] Número para resposta:', numeroResposta)
+
+  // Comandos rápidos sem IA
+  const textoLower = msg.texto.toLowerCase().trim()
+  
+  if (textoLower === '/ajuda' || textoLower === '/help' || textoLower === 'menu') {
+    const help = `🤖 *Agente Farol Finance — IA com Poderes Totais*
 
 Eu sou seu assistente financeiro e posso *executar ações* no sistema! Exemplos:
 
@@ -305,12 +360,13 @@ Eu sou seu assistente financeiro e posso *executar ações* no sistema! Exemplos
 • "Minha saúde financeira está boa?"
 
 _Pergunte qualquer coisa ou dê uma ordem!_ 🚀`
-      await enviarResposta(numeroResposta, help)
-      return NextResponse.json({ ok: true, status: 'help_sent' })
-    }
+    await enviarResposta(numeroResposta, help)
+    return
+  }
 
-    // Processar com Agente IA (function calling)
-    console.log('[WA Webhook] Chamando agenteFinanceiro...')
+  // Processar com Agente IA (function calling)
+  console.log('[WA Webhook] Chamando agenteFinanceiro...')
+  try {
     const resposta = await agenteFinanceiro(msg.texto, aiConfig, {
       url: evolutionCfg.url,
       key: evolutionCfg.key,
@@ -334,12 +390,12 @@ _Pergunte qualquer coisa ou dê uma ordem!_ 🚀`
     } catch (logErr) {
       console.error('[WA Webhook] Erro ao salvar log:', logErr)
     }
-
-    return NextResponse.json({ ok: true, status: 'responded' })
-  } catch (error) {
-    console.error('[WA Webhook] ERRO GERAL:', error)
-    // Sempre retornar 200 para não bloquear webhooks futuros
-    return NextResponse.json({ ok: true, error: 'internal_error' })
+  } catch (aiErr) {
+    console.error('[WA Webhook] ERRO no agente IA:', aiErr)
+    await enviarResposta(
+      numeroResposta,
+      '❌ Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente em alguns segundos.'
+    )
   }
 }
 
