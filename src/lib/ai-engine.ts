@@ -463,7 +463,9 @@ interface TransacaoPendencia {
   data_vencimento: string
   status: string
   categoria_id: string | null
+  categoria_nome: string | null
   franquia_id: string | null
+  franquia_nome: string | null
 }
 
 export async function detectarDuplicatas(): Promise<{
@@ -484,16 +486,16 @@ export async function detectarDuplicatas(): Promise<{
     .select('id, descricao, valor, data_vencimento, tipo, status, categoria_id, franquia_id')
     .gte('data_vencimento', trintaDiasAtras)
     .neq('status', 'cancelado')
-    .order('data_vencimento', { ascending: false }) as { data: TransacaoPendencia[] | null }
+    .order('data_vencimento', { ascending: false }) as { data: { id: string; descricao: string; valor: number; data_vencimento: string; tipo: string; status: string; categoria_id: string | null; franquia_id: string | null }[] | null }
 
-  // Buscar TODAS transações com pendências (sem limite de 30 dias)
+  // Buscar TODAS transações com pendências (sem limite de 30 dias) — inclui JOIN com categorias e franquias
   const { data: pendentes } = await supabase
     .from('_financeiro_transacoes')
-    .select('id, descricao, valor, data_vencimento, tipo, status, categoria_id, franquia_id')
+    .select('id, descricao, valor, data_vencimento, tipo, status, categoria_id, franquia_id, _financeiro_categorias(nome), _financeiro_franquias(nome)')
     .neq('status', 'cancelado')
     .or('categoria_id.is.null,franquia_id.is.null')
     .order('data_vencimento', { ascending: false })
-    .limit(500) as { data: TransacaoPendencia[] | null }
+    .limit(500) as { data: { id: string; descricao: string; valor: number; data_vencimento: string; tipo: string; status: string; categoria_id: string | null; franquia_id: string | null; _financeiro_categorias: { nome: string } | null; _financeiro_franquias: { nome: string } | null }[] | null }
 
   // --- DUPLICATAS ---
   const grupos: Map<string, { descricao: string; ids: string[]; valor: number; datas: string[] }> = new Map()
@@ -533,7 +535,7 @@ export async function detectarDuplicatas(): Promise<{
     }
   }
 
-  // --- PENDÊNCIAS: separar por tipo ---
+  // --- PENDÊNCIAS: separar por tipo (com nomes de categoria/franquia) ---
   const sem_categoria: TransacaoPendencia[] = []
   const sem_franquia: TransacaoPendencia[] = []
   const sem_ambos: TransacaoPendencia[] = []
@@ -542,12 +544,24 @@ export async function detectarDuplicatas(): Promise<{
     for (const t of pendentes) {
       const semCat = !t.categoria_id
       const semFranq = !t.franquia_id
+      const item: TransacaoPendencia = {
+        id: t.id,
+        descricao: t.descricao,
+        valor: t.valor,
+        tipo: t.tipo,
+        data_vencimento: t.data_vencimento,
+        status: t.status,
+        categoria_id: t.categoria_id,
+        categoria_nome: t._financeiro_categorias?.nome || null,
+        franquia_id: t.franquia_id,
+        franquia_nome: t._financeiro_franquias?.nome || null,
+      }
       if (semCat && semFranq) {
-        sem_ambos.push(t)
+        sem_ambos.push(item)
       } else if (semCat) {
-        sem_categoria.push(t)
+        sem_categoria.push(item)
       } else if (semFranq) {
-        sem_franquia.push(t)
+        sem_franquia.push(item)
       }
     }
   }

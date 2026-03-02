@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, CreditCard, Sparkles, AlertTriangle as AlertTriangleIcon, CheckCircle, RefreshCw } from 'lucide-react'
+import { Plus, Search, ArrowUpRight, ArrowDownRight, X, Calendar, Tag, Building2, Pencil, Trash2, MoreVertical, Sparkles, AlertTriangle as AlertTriangleIcon, CheckCircle, RefreshCw, Check, ChevronsUpDown } from 'lucide-react'
 import { formatCurrency, formatDate, getStatusColor, getStatusLabel } from '@/lib/utils'
 import type { Transacao, Categoria, Franquia, ContaBancaria } from '@/types/database'
 
@@ -21,7 +21,27 @@ interface TransacaoPendencia {
   data_vencimento: string
   status: string
   categoria_id: string | null
+  categoria_nome: string | null
   franquia_id: string | null
+  franquia_nome: string | null
+}
+
+interface IADetalhe {
+  id: string
+  descricao: string
+  categoria?: string
+  franquia?: string
+  metodo: string
+}
+
+// Helper: primeiro/último dia do mês atual
+const primeiroDiaMes = () => {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0]
+}
+const ultimoDiaMes = () => {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0]
 }
 
 interface Pendencias {
@@ -44,7 +64,11 @@ export default function TransacoesPage() {
   const [actionMenu, setActionMenu] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [menuTransaction, setMenuTransaction] = useState<Transacao | null>(null)
-  const [filtros, setFiltros] = useState({ tipo: '', status: '', franquia_id: '', search: '' })
+  const [filtros, setFiltros] = useState({
+    tipo: '', status: '', franquia_id: '', search: '',
+    data_inicio: primeiroDiaMes(),
+    data_fim: ultimoDiaMes(),
+  })
   const [duplicatas, setDuplicatas] = useState<{ descricao: string; ids: string[]; valor: number; datas: string[] }[]>([])
   const [duplicatasLoading, setDuplicatasLoading] = useState(false)
   const [pendencias, setPendencias] = useState<Pendencias | null>(null)
@@ -52,6 +76,18 @@ export default function TransacoesPage() {
   const [regularizando, setRegularizando] = useState(false)
   const [classificandoIA, setClassificandoIA] = useState(false)
   const [resultadoRegularizacao, setResultadoRegularizacao] = useState<string | null>(null)
+  const [iaDetalhes, setIaDetalhes] = useState<IADetalhe[]>([])
+
+  // Batch edit state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBatchEdit, setShowBatchEdit] = useState(false)
+  const [batchForm, setBatchForm] = useState({ categoria_id: '', franquia_id: '' })
+  const [batchSaving, setBatchSaving] = useState(false)
+
+  // Inline edit state (painel de pendências)
+  const [inlineEditing, setInlineEditing] = useState<string | null>(null)
+  const [inlineForm, setInlineForm] = useState({ categoria_id: '', franquia_id: '' })
+  const [inlineSaving, setInlineSaving] = useState(false)
   const [form, setForm] = useState({
     tipo: 'despesa' as string, descricao: '', valor: '', data_vencimento: new Date().toISOString().split('T')[0],
     data_pagamento: '', status: 'pendente', categoria_id: '', conta_bancaria_id: '', franquia_id: '',
@@ -67,7 +103,9 @@ export default function TransacoesPage() {
       const params = new URLSearchParams()
       if (filtros.tipo) params.set('tipo', filtros.tipo)
       if (filtros.status) params.set('status', filtros.status)
-      if (filtros.franquia_id) params.set('franquia_id', filtros.franquia_id) // inclui 'sem_franquia'
+      if (filtros.franquia_id) params.set('franquia_id', filtros.franquia_id)
+      if (filtros.data_inicio) params.set('data_inicio', filtros.data_inicio)
+      if (filtros.data_fim) params.set('data_fim', filtros.data_fim)
       const res = await fetch(`/api/transacoes?${params}`)
       const result = await res.json()
       setTransacoes(result.data || [])
@@ -101,7 +139,7 @@ export default function TransacoesPage() {
     } catch { setCartoes([]) }
   }
 
-  useEffect(() => { fetchTransacoes() }, [filtros.tipo, filtros.status, filtros.franquia_id])
+  useEffect(() => { fetchTransacoes() }, [filtros.tipo, filtros.status, filtros.franquia_id, filtros.data_inicio, filtros.data_fim])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -236,12 +274,142 @@ export default function TransacoesPage() {
     fetchTransacoes()
   }
 
+  // ========== INLINE EDIT (painel de pendências) ==========
+  const startInlineEdit = (t: TransacaoPendencia) => {
+    setInlineEditing(t.id)
+    setInlineForm({ categoria_id: t.categoria_id || '', franquia_id: t.franquia_id || '' })
+  }
+
+  const saveInlineEdit = async (id: string) => {
+    setInlineSaving(true)
+    try {
+      const updates: Record<string, unknown> = {}
+      if (inlineForm.categoria_id) updates.categoria_id = inlineForm.categoria_id
+      if (inlineForm.franquia_id) updates.franquia_id = inlineForm.franquia_id
+      if (Object.keys(updates).length === 0) { setInlineEditing(null); setInlineSaving(false); return }
+
+      const res = await fetch(`/api/transacoes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (res.ok) {
+        if (pendencias) {
+          const removeIfComplete = (list: TransacaoPendencia[]) =>
+            list.filter(t => {
+              if (t.id !== id) return true
+              const newCatId = inlineForm.categoria_id || t.categoria_id
+              const newFranqId = inlineForm.franquia_id || t.franquia_id
+              return !newCatId || !newFranqId
+            })
+          const newSemAmbos = removeIfComplete(pendencias.sem_ambos)
+          const newSemCategoria = removeIfComplete(pendencias.sem_categoria)
+          const newSemFranquia = removeIfComplete(pendencias.sem_franquia)
+          setPendencias({
+            sem_ambos: newSemAmbos, sem_categoria: newSemCategoria, sem_franquia: newSemFranquia,
+            total: newSemAmbos.length + newSemCategoria.length + newSemFranquia.length,
+          })
+        }
+        fetchTransacoes()
+      }
+    } catch { /* ignore */ }
+    finally { setInlineSaving(false); setInlineEditing(null) }
+  }
+
+  // ========== BATCH EDIT ==========
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedIds(next)
+  }
+
+  const toggleSelectAll = () => {
+    if (!pendencias) return
+    const allIds = [...pendencias.sem_ambos, ...pendencias.sem_categoria, ...pendencias.sem_franquia].map(t => t.id)
+    if (selectedIds.size === allIds.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(allIds))
+  }
+
+  const handleBatchSave = async () => {
+    if (selectedIds.size === 0) return
+    setBatchSaving(true)
+    try {
+      const updates: Record<string, unknown> = {}
+      if (batchForm.categoria_id) updates.categoria_id = batchForm.categoria_id
+      if (batchForm.franquia_id) updates.franquia_id = batchForm.franquia_id
+      if (Object.keys(updates).length === 0) { setBatchSaving(false); return }
+
+      let successCount = 0
+      const ids = Array.from(selectedIds)
+      for (let i = 0; i < ids.length; i += 10) {
+        const batch = ids.slice(i, i + 10)
+        const results = await Promise.all(
+          batch.map(id =>
+            fetch(`/api/transacoes/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }).then(r => r.ok)
+          )
+        )
+        successCount += results.filter(Boolean).length
+      }
+      setResultadoRegularizacao(`✅ ${successCount} de ${ids.length} transações atualizadas em lote`)
+      setShowBatchEdit(false)
+      setSelectedIds(new Set())
+      setBatchForm({ categoria_id: '', franquia_id: '' })
+      const dupRes = await fetch('/api/ia/duplicatas')
+      const dupData = await dupRes.json()
+      setPendencias(dupData.pendencias || null)
+      fetchTransacoes()
+    } catch { setResultadoRegularizacao('Erro ao salvar em lote') }
+    finally { setBatchSaving(false) }
+  }
+
+  // ========== VERIFICAR PENDÊNCIAS ==========
+  const verificarPendencias = async () => {
+    setDuplicatasLoading(true)
+    setResultadoRegularizacao(null)
+    setIaDetalhes([])
+    setSelectedIds(new Set())
+    try {
+      const res = await fetch('/api/ia/duplicatas')
+      const data = await res.json()
+      setDuplicatas(data.duplicatas || [])
+      setPendencias(data.pendencias || null)
+    } catch { /* ignore */ }
+    finally { setDuplicatasLoading(false) }
+  }
+
+  // ========== AUTO-CLASSIFICAR IA ==========
+  const autoClassificar = async () => {
+    setClassificandoIA(true)
+    setResultadoRegularizacao(null)
+    setIaDetalhes([])
+    try {
+      const res = await fetch('/api/ia/regularizar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'auto_classificar' }),
+      })
+      const data = await res.json()
+      if (data.sucesso) {
+        setResultadoRegularizacao(`✨ IA classificou ${data.atualizadas} de ${data.total_analisadas} transações`)
+        setIaDetalhes(data.detalhes || [])
+        const dupRes = await fetch('/api/ia/duplicatas')
+        const dupData = await dupRes.json()
+        setPendencias(dupData.pendencias || null)
+        fetchTransacoes()
+      } else {
+        setResultadoRegularizacao(`Erro: ${data.error || 'Falha ao classificar'}`)
+      }
+    } catch { setResultadoRegularizacao('Erro de conexão ao classificar') }
+    finally { setClassificandoIA(false) }
+  }
+
   const filtered = transacoes.filter(t =>
     !filtros.search || t.descricao.toLowerCase().includes(filtros.search.toLowerCase())
   )
 
   const totalReceitas = filtered.filter(t => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0)
   const totalDespesas = filtered.filter(t => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0)
+  const allPendencias = pendencias ? [...pendencias.sem_ambos, ...pendencias.sem_categoria, ...pendencias.sem_franquia] : []
 
   return (
     <div className="space-y-6">
@@ -251,17 +419,7 @@ export default function TransacoesPage() {
           <p className="text-gray-500 text-sm mt-1">Receitas, despesas e transferências</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={async () => {
-            setDuplicatasLoading(true)
-            try {
-              const res = await fetch('/api/ia/duplicatas')
-              const data = await res.json()
-              setDuplicatas(data.duplicatas || [])
-              setPendencias(data.pendencias || null)
-              setResultadoRegularizacao(null)
-            } catch { /* ignore */ }
-            finally { setDuplicatasLoading(false) }
-          }} disabled={duplicatasLoading}
+          <button onClick={verificarPendencias} disabled={duplicatasLoading}
             className="btn-secondary flex items-center gap-2 text-sm">
             {duplicatasLoading ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
             Verificar Pendências
@@ -327,7 +485,7 @@ export default function TransacoesPage() {
               <Sparkles className="w-4 h-4 text-purple-400" />
               {pendencias.total} Transações Pendentes de Regularização
             </h3>
-            <button onClick={() => setPendencias(null)} className="text-gray-500 hover:text-white text-xs">Fechar</button>
+            <button onClick={() => { setPendencias(null); setIaDetalhes([]) }} className="text-gray-500 hover:text-white text-xs">Fechar</button>
           </div>
 
           {/* Resultado da última ação */}
@@ -335,6 +493,28 @@ export default function TransacoesPage() {
             <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               <p className="text-sm text-emerald-300">{resultadoRegularizacao}</p>
+            </div>
+          )}
+
+          {/* Detalhes da IA (resultado da auto classificação) */}
+          {iaDetalhes.length > 0 && (
+            <div className="mb-4 p-3 rounded-lg bg-purple-500/5 border border-purple-500/15">
+              <p className="text-xs font-medium text-purple-300 mb-2">Alterações realizadas pela IA:</p>
+              <div className="space-y-1 max-h-[150px] overflow-y-auto">
+                {iaDetalhes.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11px]">
+                    <span className={`px-1 py-0.5 rounded text-[9px] font-mono ${
+                      d.metodo === 'historico' ? 'bg-blue-500/10 text-blue-400' :
+                      d.metodo === 'keywords' ? 'bg-amber-500/10 text-amber-400' :
+                      d.metodo === 'openai' ? 'bg-purple-500/10 text-purple-400' :
+                      'bg-gray-500/10 text-gray-400'
+                    }`}>{d.metodo}</span>
+                    <span className="text-gray-400 truncate flex-1">{d.descricao}</span>
+                    {d.categoria && <span className="flex items-center gap-0.5 text-amber-300"><Tag className="w-3 h-3" />{d.categoria}</span>}
+                    {d.franquia && <span className="flex items-center gap-0.5 text-indigo-300"><Building2 className="w-3 h-3" />{d.franquia}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -360,126 +540,151 @@ export default function TransacoesPage() {
             )}
           </div>
 
-          {/* Lista das transações pendentes (top 15) */}
-          <div className="space-y-1 mb-4 max-h-[200px] overflow-y-auto">
-            {[...pendencias.sem_ambos, ...pendencias.sem_categoria, ...pendencias.sem_franquia].slice(0, 15).map((t, i) => (
-              <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-[#12121a] border border-[#2a2a3a]">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">{t.descricao}</p>
-                  <p className="text-[10px] text-gray-500">
-                    {t.tipo === 'receita' ? '↑ Receita' : '↓ Despesa'} • {formatCurrency(Number(t.valor))} • {new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}
-                  </p>
-                </div>
-                <div className="flex gap-1.5 ml-2">
-                  {!t.categoria_id && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">s/ categ.</span>
-                  )}
-                  {!t.franquia_id && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">s/ franq.</span>
-                  )}
-                </div>
+          {/* Barra de seleção em lote */}
+          <div className="flex items-center justify-between mb-2">
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+              <input type="checkbox" checked={allPendencias.length > 0 && selectedIds.size === allPendencias.length} onChange={toggleSelectAll} className="w-3.5 h-3.5 rounded border-[#2a2a3a]" />
+              Selecionar todos ({allPendencias.length})
+            </label>
+            {selectedIds.size > 0 && (
+              <button onClick={() => { setBatchForm({ categoria_id: '', franquia_id: '' }); setShowBatchEdit(true) }}
+                className="text-xs font-medium text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                <Pencil className="w-3 h-3" /> Editar {selectedIds.size} selecionado{selectedIds.size > 1 ? 's' : ''}
+              </button>
+            )}
+          </div>
+
+          {/* Lista das transações pendentes com edição inline */}
+          <div className="space-y-1 mb-4 max-h-[350px] overflow-y-auto">
+            {allPendencias.slice(0, 50).map((t) => (
+              <div key={t.id} className={`rounded-lg bg-[#12121a] border transition-colors ${
+                selectedIds.has(t.id) ? 'border-purple-500/30 bg-purple-500/5' : 'border-[#2a2a3a]'
+              } ${inlineEditing === t.id ? 'p-3' : 'p-2.5'}`}>
+                {inlineEditing === t.id ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-200 font-medium">{t.descricao}</p>
+                      <div className="flex gap-1">
+                        <button onClick={() => saveInlineEdit(t.id)} disabled={inlineSaving}
+                          className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+                          {inlineSaving ? <div className="w-3.5 h-3.5 border border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </button>
+                        <button onClick={() => setInlineEditing(null)} className="p-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-500">{t.tipo === 'receita' ? '↑ Receita' : '↓ Despesa'} • {formatCurrency(Number(t.valor))} • {new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-0.5 block">Categoria</label>
+                        <select value={inlineForm.categoria_id} onChange={(e) => setInlineForm({ ...inlineForm, categoria_id: e.target.value })}
+                          className="w-full px-2 py-1.5 text-xs rounded-md bg-[#0a0a12] border border-[#2a2a3a] text-gray-200">
+                          <option value="">Selecione</option>
+                          {categorias.filter(c => c.tipo === t.tipo || t.tipo === 'transferencia').map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-0.5 block">Franquia</label>
+                        <select value={inlineForm.franquia_id} onChange={(e) => setInlineForm({ ...inlineForm, franquia_id: e.target.value })}
+                          className="w-full px-2 py-1.5 text-xs rounded-md bg-[#0a0a12] border border-[#2a2a3a] text-gray-200">
+                          <option value="">Selecione</option>
+                          {franquias.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelect(t.id)} className="w-3.5 h-3.5 rounded border-[#2a2a3a] flex-shrink-0" />
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => startInlineEdit(t)}>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm text-gray-200 truncate">{t.descricao}</p>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-[10px] text-gray-500">{t.tipo === 'receita' ? '↑' : '↓'} {formatCurrency(Number(t.valor))} • {new Date(t.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                        {t.categoria_nome && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-0.5"><Tag className="w-2.5 h-2.5" />{t.categoria_nome}</span>
+                        )}
+                        {t.franquia_nome && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-0.5"><Building2 className="w-2.5 h-2.5" />{t.franquia_nome}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 ml-1 flex-shrink-0">
+                      {!t.categoria_id && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">s/ categ.</span>}
+                      {!t.franquia_id && <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">s/ franq.</span>}
+                      <button onClick={() => startInlineEdit(t)} className="p-1 rounded hover:bg-[#2a2a3a] text-gray-500 hover:text-white transition-colors">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
-            {pendencias.total > 15 && (
-              <p className="text-[10px] text-gray-500 text-center py-1">... e mais {pendencias.total - 15} transações</p>
-            )}
+            {allPendencias.length > 50 && <p className="text-[10px] text-gray-500 text-center py-1">... e mais {allPendencias.length - 50} transações</p>}
           </div>
 
           {/* Ações em massa */}
           <div className="flex flex-wrap gap-2 pt-2 border-t border-[#2a2a3a]">
-            <button
-              onClick={async () => {
-                setClassificandoIA(true)
-                setResultadoRegularizacao(null)
-                try {
-                  const res = await fetch('/api/ia/regularizar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ acao: 'auto_classificar' }),
-                  })
-                  const data = await res.json()
-                  if (data.sucesso) {
-                    setResultadoRegularizacao(`✨ IA classificou ${data.atualizadas} de ${data.total_analisadas} transações (categoria + franquia pelo histórico)`)
-                    // Recarregar pendências
-                    const dupRes = await fetch('/api/ia/duplicatas')
-                    const dupData = await dupRes.json()
-                    setPendencias(dupData.pendencias || null)
-                    fetchTransacoes()
-                  } else {
-                    setResultadoRegularizacao(`Erro: ${data.error || 'Falha ao classificar'}`)
-                  }
-                } catch {
-                  setResultadoRegularizacao('Erro de conexão ao classificar')
-                }
-                finally { setClassificandoIA(false) }
-              }}
-              disabled={classificandoIA || regularizando}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
+            <button onClick={autoClassificar} disabled={classificandoIA || regularizando} className="btn-secondary flex items-center gap-2 text-sm">
               {classificandoIA ? <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-400" />}
               Auto-classificar com IA
             </button>
-
             {(pendencias.sem_franquia.length > 0 || pendencias.sem_ambos.length > 0) && (
-              <button
-                onClick={() => setShowConfirmPessoal(true)}
-                disabled={classificandoIA || regularizando}
-                className="btn-secondary flex items-center gap-2 text-sm border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10"
-              >
-                <Building2 className="w-4 h-4" />
-                Mover sem franquia → Pessoal ({pendencias.sem_franquia.length + pendencias.sem_ambos.length})
+              <button onClick={() => setShowConfirmPessoal(true)} disabled={classificandoIA || regularizando}
+                className="btn-secondary flex items-center gap-2 text-sm border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10">
+                <Building2 className="w-4 h-4" /> Sem franquia → Pessoal ({pendencias.sem_franquia.length + pendencias.sem_ambos.length})
               </button>
             )}
-
-            <button
-              onClick={async () => {
-                setDuplicatasLoading(true)
-                try {
-                  const res = await fetch('/api/ia/duplicatas')
-                  const data = await res.json()
-                  setDuplicatas(data.duplicatas || [])
-                  setPendencias(data.pendencias || null)
-                } catch { /* ignore */ }
-                finally { setDuplicatasLoading(false) }
-              }}
-              disabled={duplicatasLoading}
-              className="btn-secondary flex items-center gap-1.5 text-xs text-gray-400"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${duplicatasLoading ? 'animate-spin' : ''}`} />
-              Atualizar
+            <button onClick={verificarPendencias} disabled={duplicatasLoading}
+              className="btn-secondary flex items-center gap-1.5 text-xs text-gray-400">
+              <RefreshCw className={`w-3.5 h-3.5 ${duplicatasLoading ? 'animate-spin' : ''}`} /> Atualizar
             </button>
           </div>
 
           <p className="text-[10px] text-gray-600 mt-3">
-            A IA busca no histórico de transações similares para inferir categoria e franquia. Transações sem match serão classificadas por keywords ou OpenAI (se configurada).
+            Clique em qualquer transação para editar categoria/franquia. Selecione várias e use &quot;Editar selecionados&quot; para alterar em lote. A IA busca no histórico para inferir categoria e franquia.
           </p>
         </div>
       )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input type="text" value={filtros.search} onChange={(e) => setFiltros({...filtros, search: e.target.value})} placeholder="Buscar..." className="w-full pl-10 pr-4 py-2 text-sm" />
         </div>
-        <select value={filtros.tipo} onChange={(e) => setFiltros({...filtros, tipo: e.target.value})} className="px-3 py-2 text-sm min-w-[130px]">
+        <div className="flex items-center gap-1.5">
+          <Calendar className="w-4 h-4 text-gray-500" />
+          <input type="date" value={filtros.data_inicio} onChange={(e) => setFiltros({...filtros, data_inicio: e.target.value})} className="px-2.5 py-2 text-sm min-w-[130px]" />
+          <span className="text-gray-500 text-xs">até</span>
+          <input type="date" value={filtros.data_fim} onChange={(e) => setFiltros({...filtros, data_fim: e.target.value})} className="px-2.5 py-2 text-sm min-w-[130px]" />
+        </div>
+        <select value={filtros.tipo} onChange={(e) => setFiltros({...filtros, tipo: e.target.value})} className="px-3 py-2 text-sm min-w-[120px]">
           <option value="">Todos Tipos</option>
           <option value="receita">Receitas</option>
           <option value="despesa">Despesas</option>
           <option value="transferencia">Transferências</option>
         </select>
-        <select value={filtros.status} onChange={(e) => setFiltros({...filtros, status: e.target.value})} className="px-3 py-2 text-sm min-w-[130px]">
+        <select value={filtros.status} onChange={(e) => setFiltros({...filtros, status: e.target.value})} className="px-3 py-2 text-sm min-w-[120px]">
           <option value="">Todos Status</option>
           <option value="pendente">Pendente</option>
           <option value="pago">Pago</option>
           <option value="atrasado">Atrasado</option>
           <option value="cancelado">Cancelado</option>
         </select>
-        <select value={filtros.franquia_id} onChange={(e) => setFiltros({...filtros, franquia_id: e.target.value})} className="px-3 py-2 text-sm min-w-[150px]">
+        <select value={filtros.franquia_id} onChange={(e) => setFiltros({...filtros, franquia_id: e.target.value})} className="px-3 py-2 text-sm min-w-[140px]">
           <option value="">Todas Franquias</option>
           <option value="sem_franquia">Sem Franquia</option>
           {franquias.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
         </select>
+        {(filtros.data_inicio !== primeiroDiaMes() || filtros.data_fim !== ultimoDiaMes() || filtros.tipo || filtros.status || filtros.franquia_id) && (
+          <button onClick={() => setFiltros({ tipo: '', status: '', franquia_id: '', search: filtros.search, data_inicio: primeiroDiaMes(), data_fim: ultimoDiaMes() })}
+            className="px-2.5 py-2 text-xs text-gray-400 hover:text-white rounded-lg hover:bg-[#2a2a3a] transition-colors flex items-center gap-1">
+            <X className="w-3 h-3" /> Limpar
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -504,7 +709,10 @@ export default function TransacoesPage() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-500">Nenhuma transação encontrada</td></tr>
               ) : (
-                filtered.map((t) => (
+                filtered.map((t) => {
+                  const catNome = (t as Record<string, unknown>)._financeiro_categorias as { nome?: string } | null
+                  const franqNome = (t as Record<string, unknown>)._financeiro_franquias as { nome?: string } | null
+                  return (
                   <tr key={t.id} className="border-b border-[#1c1c28] table-row-hover">
                     <td className="px-5 py-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${t.tipo === 'receita' ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
@@ -513,7 +721,17 @@ export default function TransacoesPage() {
                     </td>
                     <td className="px-5 py-3">
                       <p className="text-sm text-gray-200">{t.descricao}</p>
-                      {t.parcela_atual && t.parcela_total && <p className="text-[10px] text-gray-500">{t.parcela_atual}/{t.parcela_total} parcelas</p>}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {catNome?.nome && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1c1c28] text-gray-400 flex items-center gap-0.5"><Tag className="w-2.5 h-2.5" />{catNome.nome}</span>
+                        )}
+                        {franqNome?.nome && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1c1c28] text-gray-400 flex items-center gap-0.5"><Building2 className="w-2.5 h-2.5" />{franqNome.nome}</span>
+                        )}
+                        {t.parcela_atual && t.parcela_total && t.parcela_total > 1 && (
+                          <span className="text-[10px] text-gray-500">{t.parcela_atual}/{t.parcela_total} parcelas</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3">
                       <span className={`text-sm font-semibold ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -532,7 +750,8 @@ export default function TransacoesPage() {
                       </button>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -676,6 +895,59 @@ export default function TransacoesPage() {
                 <button type="submit" className="btn-primary flex-1 text-sm">{editingId ? 'Salvar Alterações' : 'Criar Transação'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* Modal Edição em Lote */}
+      {showBatchEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowBatchEdit(false)} />
+          <div className="relative w-full max-w-md glass-card p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ChevronsUpDown className="w-5 h-5 text-purple-400" />
+                Editar {selectedIds.size} Transações
+              </h2>
+              <button onClick={() => setShowBatchEdit(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">
+              Selecione a categoria e/ou franquia para aplicar em todas as {selectedIds.size} transações selecionadas. Campos em branco não serão alterados.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1"><Tag className="w-3 h-3" /> Categoria</label>
+                <select value={batchForm.categoria_id} onChange={(e) => setBatchForm({ ...batchForm, categoria_id: e.target.value })} className="w-full px-3 py-2 text-sm">
+                  <option value="">— Não alterar —</option>
+                  {categorias.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.tipo})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1"><Building2 className="w-3 h-3" /> Franquia</label>
+                <select value={batchForm.franquia_id} onChange={(e) => setBatchForm({ ...batchForm, franquia_id: e.target.value })} className="w-full px-3 py-2 text-sm">
+                  <option value="">— Não alterar —</option>
+                  {franquias.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                </select>
+              </div>
+              <div className="text-xs text-gray-500 bg-[#12121a] p-3 rounded-lg max-h-[120px] overflow-y-auto space-y-0.5">
+                {allPendencias.filter(t => selectedIds.has(t.id)).slice(0, 15).map(t => (
+                  <div key={t.id} className="flex justify-between">
+                    <span className="truncate mr-2">{t.descricao}</span>
+                    <span className="text-gray-500 flex-shrink-0">{formatCurrency(Number(t.valor))}</span>
+                  </div>
+                ))}
+                {selectedIds.size > 15 && <p className="text-gray-600 text-center">... e mais {selectedIds.size - 15}</p>}
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowBatchEdit(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                <button onClick={handleBatchSave} disabled={batchSaving || (!batchForm.categoria_id && !batchForm.franquia_id)}
+                  className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
+                  {batchSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Aplicar em {selectedIds.size}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
